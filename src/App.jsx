@@ -609,7 +609,7 @@ export default function LittleTreatsApp() {
   const [cart, setCart] = useState([]); // {id, qty}
   const [orders, setOrders] = useState([]);
   const [lastOrder, setLastOrder] = useState(null);
-  const [sheetUrl, setSheetUrl] = useState("");
+  const [sheetUrl, setSheetUrl] = useState("https://script.google.com/macros/s/AKfycbyJ8aKilYXt-gNzcqy8sueXWuFJ-lFH5Udnm0jykuHU9yMwmnAp9lnG7wza2OUK302x/exec");
   const [toasts, setToasts] = useState([]);
 
   const pushToast = (msg) => {
