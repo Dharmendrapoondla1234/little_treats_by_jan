@@ -40,12 +40,12 @@ const COLORS = {
 /* ---------------- Seed data ---------------- */
 
 const SEED_PRODUCTS = [
-  { id: "p1", name: "Double Choco Bites", price: 249, unit: "250g jar", tag: "Bestseller", emoji: "🍫", desc: "Rich cocoa cookie bites rolled in dark chocolate chunks." },
-  { id: "p2", name: "Classic Butter Cookies", price: 199, unit: "250g jar", tag: "Bestseller", emoji: "🍪", desc: "Melt-in-mouth butter cookies, small-batch baked." },
-  { id: "p3", name: "Choco Chip Crunch", price: 229, unit: "250g jar", tag: "New", emoji: "🍪", desc: "Golden cookies loaded with chocolate chips." },
-  { id: "p4", name: "Assorted Biscuit Mix", price: 279, unit: "300g jar", tag: "Combo", emoji: "🧁", desc: "Our four best flavours mixed into one happy jar." },
-  { id: "p5", name: "Nutty Cocoa Rounds", price: 259, unit: "250g jar", tag: "New", emoji: "🍫", desc: "Dark cocoa cookies studded with roasted nuts." },
-  { id: "p6", name: "Honey Oat Biscuits", price: 219, unit: "250g jar", tag: "", emoji: "🍪", desc: "Wholesome oats sweetened with honey, lightly crisp." },
+  { id: "p1", name: "Double Choco Bites", price: 249, unit: "250g jar", weight: "250g", stock: 25, tag: "Bestseller", emoji: "🍫", image: "", desc: "Rich cocoa cookie bites rolled in dark chocolate chunks." },
+  { id: "p2", name: "Classic Butter Cookies", price: 199, unit: "250g jar", weight: "250g", stock: 30, tag: "Bestseller", emoji: "🍪", image: "", desc: "Melt-in-mouth butter cookies, small-batch baked." },
+  { id: "p3", name: "Choco Chip Crunch", price: 229, unit: "250g jar", weight: "250g", stock: 18, tag: "New", emoji: "🍪", image: "", desc: "Golden cookies loaded with chocolate chips." },
+  { id: "p4", name: "Assorted Biscuit Mix", price: 279, unit: "300g jar", weight: "300g", stock: 12, tag: "Combo", emoji: "🧁", image: "", desc: "Our four best flavours mixed into one happy jar." },
+  { id: "p5", name: "Nutty Cocoa Rounds", price: 259, unit: "250g jar", weight: "250g", stock: 0, tag: "New", emoji: "🍫", image: "", desc: "Dark cocoa cookies studded with roasted nuts." },
+  { id: "p6", name: "Honey Oat Biscuits", price: 219, unit: "250g jar", weight: "250g", stock: 20, tag: "", emoji: "🍪", image: "", desc: "Wholesome oats sweetened with honey, lightly crisp." },
 ];
 
 const ADMIN_EMAIL = "admin@littletreats.com";
@@ -194,7 +194,16 @@ function Header({ page, setPage, user, logout, cartCount }) {
                 </button>
               </>
             ) : (
-              <NavBtn id="login" icon={<User size={18} />} label="Login" />
+              <>
+                <NavBtn id="login" icon={<User size={18} />} label="Login" />
+                <button onClick={() => setPage("login")} title="Admin Login" style={{
+                  display: "flex", flexDirection: "column", alignItems: "center", gap: 2, background: "none", border: "none",
+                  cursor: "pointer", color: "#8A6C5F", fontFamily: "Nunito, sans-serif", fontWeight: 800, fontSize: 11, padding: "4px 8px",
+                }}>
+                  <Settings size={18} />
+                  Admin
+                </button>
+              </>
             )}
           </div>
         )}
@@ -270,23 +279,35 @@ function ProductsPage({ products, addToCart, toast }) {
       <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 26, color: COLORS.cocoa }}>Our Little Treats</h2>
       <p style={{ fontFamily: "Nunito, sans-serif", color: "#8A6C5F", fontSize: 13.5, marginBottom: 18 }}>Small batches, freshly baked and carefully packed.</p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px,1fr))", gap: 16 }}>
-        {products.map((p) => (
-          <div key={p.id} style={{ background: "#fff", borderRadius: 20, border: `2px solid ${COLORS.line}`, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-            <div style={{ background: COLORS.blush, fontSize: 54, textAlign: "center", padding: "22px 0" }}>{p.emoji}</div>
-            <div style={{ padding: 16, display: "flex", flexDirection: "column", flex: 1 }}>
-              {p.tag && <div style={{ marginBottom: 6 }}><Pill bg="#FFF1D9" color="#B4720F">{p.tag}</Pill></div>}
-              <div style={{ fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: 17, color: COLORS.cocoa }}>{p.name}</div>
-              <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 12, color: "#8A6C5F", margin: "4px 0 8px" }}>{p.desc}</div>
-              <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 11.5, color: "#B08A7A", marginBottom: 10 }}>{p.unit}</div>
-              <div style={{ marginTop: "auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <span style={{ fontFamily: "'Playfair Display', serif", fontWeight: 800, fontSize: 19, color: COLORS.magenta }}>₹{p.price}</span>
-                <Button variant="primary" onClick={() => { addToCart(p.id); toast(`${p.name} added to cart`); }} style={{ padding: "9px 14px", fontSize: 13 }}>
-                  <Plus size={14} /> Add
-                </Button>
+        {products.map((p) => {
+          const outOfStock = (p.stock ?? 0) <= 0;
+          return (
+            <div key={p.id} style={{ background: "#fff", borderRadius: 20, border: `2px solid ${COLORS.line}`, overflow: "hidden", display: "flex", flexDirection: "column", opacity: outOfStock ? 0.75 : 1 }}>
+              <div style={{ background: COLORS.blush, textAlign: "center", padding: p.image ? 0 : "22px 0", position: "relative" }}>
+                {p.image ? (
+                  <img src={p.image} alt={p.name} style={{ width: "100%", height: 130, objectFit: "cover", display: "block" }} />
+                ) : (
+                  <span style={{ fontSize: 54 }}>{p.emoji}</span>
+                )}
+                {outOfStock && (
+                  <div style={{ position: "absolute", top: 8, right: 8, background: COLORS.cocoa, color: "#fff", fontSize: 10.5, fontWeight: 800, padding: "3px 9px", borderRadius: 999, letterSpacing: 0.3 }}>OUT OF STOCK</div>
+                )}
+              </div>
+              <div style={{ padding: 16, display: "flex", flexDirection: "column", flex: 1 }}>
+                {p.tag && !outOfStock && <div style={{ marginBottom: 6 }}><Pill bg="#FFF1D9" color="#B4720F">{p.tag}</Pill></div>}
+                <div style={{ fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: 17, color: COLORS.cocoa }}>{p.name}</div>
+                <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 12, color: "#8A6C5F", margin: "4px 0 8px" }}>{p.desc}</div>
+                <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 11.5, color: "#B08A7A", marginBottom: 10 }}>{p.weight || p.unit}</div>
+                <div style={{ marginTop: "auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span style={{ fontFamily: "'Playfair Display', serif", fontWeight: 800, fontSize: 19, color: COLORS.magenta }}>₹{p.price}</span>
+                  <Button variant="primary" disabled={outOfStock} onClick={() => { addToCart(p.id); toast(`${p.name} added to cart`); }} style={{ padding: "9px 14px", fontSize: 13 }}>
+                    {outOfStock ? "Unavailable" : (<><Plus size={14} /> Add</>)}
+                  </Button>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -408,13 +429,13 @@ function ConfirmationPage({ lastOrder, setPage }) {
   return (
     <div style={{ maxWidth: 500, margin: "0 auto", padding: "48px 18px 60px", textAlign: "center" }}>
       <BiteProgress step={2} />
-      <div style={{ fontSize: 56 }}>🎉</div>
-      <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 24, color: COLORS.cocoa, margin: "10px 0 6px" }}>Order Confirmed!</h2>
+      <div style={{ fontSize: 56 }}>🧁</div>
+      <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 24, color: COLORS.cocoa, margin: "10px 0 6px" }}>Order Received!</h2>
       <p style={{ fontFamily: "Nunito, sans-serif", color: "#8A6C5F", fontSize: 14, marginBottom: 4 }}>
-        Order <b style={{ color: COLORS.magenta }}>#{lastOrder?.id}</b> has been placed.
+        Order <b style={{ color: COLORS.magenta }}>#{lastOrder?.id}</b> is <b style={{ color: "#B4720F" }}>pending confirmation</b> from Little Treats.
       </p>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, color: COLORS.mint, fontFamily: "Nunito, sans-serif", fontWeight: 700, fontSize: 13, margin: "10px 0 20px" }}>
-        <Bell size={15} /> Confirmation notification sent to you
+        <Bell size={15} /> We've notified you — you'll get another notification once it's confirmed
       </div>
       <div style={{ background: "#fff", border: `2px solid ${COLORS.line}`, borderRadius: 16, padding: 16, textAlign: "left", fontFamily: "Nunito, sans-serif" }}>
         <div style={{ fontWeight: 800, color: COLORS.cocoa, marginBottom: 8 }}>Delivering to</div>
@@ -431,10 +452,12 @@ function ConfirmationPage({ lastOrder, setPage }) {
 
 /* ---------------- Auth ---------------- */
 
-function LoginPage({ setPage, login, users }) {
-  const [mode, setMode] = useState("login");
+function LoginPage({ setPage, login, users, resetPassword }) {
+  const [mode, setMode] = useState("login"); // login | register | forgot
   const [form, setForm] = useState({ name: "", email: "", password: "" });
+  const [resetForm, setResetForm] = useState({ email: "", newPassword: "", confirm: "" });
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
 
   const submit = () => {
     setError("");
@@ -452,30 +475,79 @@ function LoginPage({ setPage, login, users }) {
     }
   };
 
+  const submitReset = () => {
+    setError(""); setNotice("");
+    const found = users.find((u) => u.email === resetForm.email);
+    if (!found) return setError("No account found with that email.");
+    if (!resetForm.newPassword || resetForm.newPassword.length < 4) return setError("New password must be at least 4 characters.");
+    if (resetForm.newPassword !== resetForm.confirm) return setError("Passwords don't match.");
+    resetPassword(resetForm.email, resetForm.newPassword);
+    setNotice("Password updated! You can log in with your new password now.");
+    setResetForm({ email: "", newPassword: "", confirm: "" });
+    setTimeout(() => { setMode("login"); setNotice(""); }, 1800);
+  };
+
   return (
     <div style={{ maxWidth: 420, margin: "0 auto", padding: "40px 18px 60px" }}>
       <div style={{ textAlign: "center", marginBottom: 20 }}>
         <div style={{ fontSize: 40 }}>🧁</div>
-        <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, color: COLORS.cocoa }}>{mode === "login" ? "Welcome back" : "Create your account"}</h2>
-        <p style={{ fontFamily: "Nunito, sans-serif", fontSize: 13, color: "#8A6C5F" }}>{mode === "login" ? "Log in to order your favourite treats" : "Sign up to start ordering"}</p>
+        <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, color: COLORS.cocoa }}>
+          {mode === "login" ? "Welcome back" : mode === "register" ? "Create your account" : "Reset your password"}
+        </h2>
+        <p style={{ fontFamily: "Nunito, sans-serif", fontSize: 13, color: "#8A6C5F" }}>
+          {mode === "login" ? "Log in to order your favourite treats" : mode === "register" ? "Sign up to start ordering" : "Enter your account email and choose a new password"}
+        </p>
       </div>
+
       <div style={{ background: "#fff", border: `2px solid ${COLORS.line}`, borderRadius: 18, padding: 20 }}>
-        {mode === "register" && <Field label="Full Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Jane Doe" />}
-        <Field label="Email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="you@example.com" />
-        <Field label="Password" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="••••••••" />
-        {error && <div style={{ color: "#C6296B", fontFamily: "Nunito, sans-serif", fontSize: 12.5, fontWeight: 700, marginBottom: 10 }}>{error}</div>}
-        <Button full variant="primary" onClick={submit}>
-          <Lock size={15} /> {mode === "login" ? "Log In" : "Sign Up"}
-        </Button>
+        {mode === "forgot" ? (
+          <>
+            <Field label="Account Email" type="email" value={resetForm.email} onChange={(e) => setResetForm({ ...resetForm, email: e.target.value })} placeholder="you@example.com" />
+            <Field label="New Password" type="password" value={resetForm.newPassword} onChange={(e) => setResetForm({ ...resetForm, newPassword: e.target.value })} placeholder="At least 4 characters" />
+            <Field label="Confirm New Password" type="password" value={resetForm.confirm} onChange={(e) => setResetForm({ ...resetForm, confirm: e.target.value })} placeholder="Re-enter new password" />
+            {error && <div style={{ color: "#C6296B", fontFamily: "Nunito, sans-serif", fontSize: 12.5, fontWeight: 700, marginBottom: 10 }}>{error}</div>}
+            {notice && <div style={{ color: "#2E8F55", fontFamily: "Nunito, sans-serif", fontSize: 12.5, fontWeight: 700, marginBottom: 10 }}>{notice}</div>}
+            <Button full variant="primary" onClick={submitReset}><Lock size={15} /> Update Password</Button>
+            <div style={{ marginTop: 10, fontFamily: "Nunito, sans-serif", fontSize: 11, color: "#B08A7A", textAlign: "center" }}>
+              This demo resets the password directly. A production version would email a one-time code first — see note below.
+            </div>
+          </>
+        ) : (
+          <>
+            {mode === "register" && <Field label="Full Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Jane Doe" />}
+            <Field label="Email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="you@example.com" />
+            <Field label="Password" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="••••••••" />
+            {error && <div style={{ color: "#C6296B", fontFamily: "Nunito, sans-serif", fontSize: 12.5, fontWeight: 700, marginBottom: 10 }}>{error}</div>}
+            <Button full variant="primary" onClick={submit}>
+              <Lock size={15} /> {mode === "login" ? "Log In" : "Sign Up"}
+            </Button>
+            {mode === "login" && (
+              <div style={{ textAlign: "center", marginTop: 10 }}>
+                <button onClick={() => { setMode("forgot"); setError(""); }} style={{ background: "none", border: "none", color: COLORS.mint, fontWeight: 700, fontSize: 12.5, cursor: "pointer", fontFamily: "Nunito, sans-serif" }}>
+                  Forgot password?
+                </button>
+              </div>
+            )}
+          </>
+        )}
+
         <div style={{ textAlign: "center", marginTop: 14, fontFamily: "Nunito, sans-serif", fontSize: 13, color: "#8A6C5F" }}>
-          {mode === "login" ? "New here?" : "Already have an account?"}{" "}
-          <button onClick={() => { setMode(mode === "login" ? "register" : "login"); setError(""); }} style={{ background: "none", border: "none", color: COLORS.magenta, fontWeight: 800, cursor: "pointer" }}>
-            {mode === "login" ? "Create an account" : "Log in"}
-          </button>
+          {mode === "forgot" ? (
+            <button onClick={() => { setMode("login"); setError(""); setNotice(""); }} style={{ background: "none", border: "none", color: COLORS.magenta, fontWeight: 800, cursor: "pointer" }}>Back to log in</button>
+          ) : (
+            <>
+              {mode === "login" ? "New here?" : "Already have an account?"}{" "}
+              <button onClick={() => { setMode(mode === "login" ? "register" : "login"); setError(""); }} style={{ background: "none", border: "none", color: COLORS.magenta, fontWeight: 800, cursor: "pointer" }}>
+                {mode === "login" ? "Create an account" : "Log in"}
+              </button>
+            </>
+          )}
         </div>
-        <div style={{ marginTop: 10, fontFamily: "Nunito, sans-serif", fontSize: 11, color: "#B08A7A", textAlign: "center" }}>
-          Admin demo: {ADMIN_EMAIL} / {ADMIN_PASSWORD}
-        </div>
+        {mode !== "forgot" && (
+          <div style={{ marginTop: 10, fontFamily: "Nunito, sans-serif", fontSize: 11, color: "#B08A7A", textAlign: "center" }}>
+            Admin demo: {ADMIN_EMAIL} / {ADMIN_PASSWORD}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -484,7 +556,7 @@ function LoginPage({ setPage, login, users }) {
 /* ---------------- User Orders ---------------- */
 
 function statusColor(status) {
-  return { Placed: "#B4720F", Confirmed: COLORS.mint, Preparing: COLORS.marigold, "Out for Delivery": COLORS.magenta, Delivered: "#2E8F55" }[status] || COLORS.cocoa;
+  return { Pending: "#B4720F", Confirmed: COLORS.mint, Preparing: COLORS.marigold, "Out for Delivery": COLORS.magenta, Delivered: "#2E8F55", Declined: "#A03030" }[status] || COLORS.cocoa;
 }
 
 function OrdersPage({ orders, user, setPage }) {
@@ -516,39 +588,79 @@ function OrdersPage({ orders, user, setPage }) {
 
 /* ---------------- Admin ---------------- */
 
-function AdminProductsPage({ products, addProduct, deleteProduct, sheetUrl, setSheetUrl }) {
-  const [form, setForm] = useState({ name: "", price: "", unit: "", emoji: "🍪", desc: "", tag: "" });
+function AdminProductsPage({ products, addProduct, deleteProduct, updateProduct, sheetUrl, setSheetUrl }) {
+  const [form, setForm] = useState({ name: "", price: "", weight: "", stock: "", emoji: "🍪", desc: "", tag: "", image: "" });
+  const [imgError, setImgError] = useState("");
+
+  const handleImage = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 1.5 * 1024 * 1024) { setImgError("Image too large — please use one under 1.5MB."); return; }
+    setImgError("");
+    const reader = new FileReader();
+    reader.onload = () => setForm((f) => ({ ...f, image: reader.result }));
+    reader.readAsDataURL(file);
+  };
+
   const submit = () => {
     if (!form.name || !form.price) return;
-    addProduct({ ...form, id: "p" + Date.now(), price: Number(form.price) });
-    setForm({ name: "", price: "", unit: "", emoji: "🍪", desc: "", tag: "" });
+    addProduct({
+      ...form, id: "p" + Date.now(),
+      price: Number(form.price),
+      stock: Number(form.stock) || 0,
+      unit: form.weight,
+    });
+    setForm({ name: "", price: "", weight: "", stock: "", emoji: "🍪", desc: "", tag: "", image: "" });
   };
+
   return (
     <div style={{ maxWidth: 900, margin: "0 auto", padding: "24px 18px 60px" }}>
       <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 24, color: COLORS.cocoa, marginBottom: 4 }}>Admin · Products</h2>
-      <p style={{ fontFamily: "Nunito, sans-serif", fontSize: 13, color: "#8A6C5F", marginBottom: 18 }}>Add new treats to the storefront.</p>
+      <p style={{ fontFamily: "Nunito, sans-serif", fontSize: 13, color: "#8A6C5F", marginBottom: 18 }}>Add new treats, set stock levels, and upload product photos.</p>
 
       <div style={{ background: "#fff", border: `2px solid ${COLORS.line}`, borderRadius: 18, padding: 18, marginBottom: 24 }}>
         <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 12 }}>
           <Field label="Product Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Choco Delight Cookies" />
           <Field label="Price (₹)" type="number" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} placeholder="249" />
-          <Field label="Unit" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} placeholder="250g jar" />
+          <Field label="Weight / Size" value={form.weight} onChange={(e) => setForm({ ...form, weight: e.target.value })} placeholder="250g jar" />
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 2fr", gap: 12 }}>
-          <Field label="Emoji Icon" value={form.emoji} onChange={(e) => setForm({ ...form, emoji: e.target.value })} placeholder="🍪" />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+          <Field label="Stock Quantity" type="number" value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} placeholder="20" />
+          <Field label="Emoji Icon (fallback)" value={form.emoji} onChange={(e) => setForm({ ...form, emoji: e.target.value })} placeholder="🍪" />
           <Field label="Tag (optional)" value={form.tag} onChange={(e) => setForm({ ...form, tag: e.target.value })} placeholder="New" />
-          <Field label="Description" value={form.desc} onChange={(e) => setForm({ ...form, desc: e.target.value })} placeholder="Short description" />
         </div>
+        <Field label="Description" value={form.desc} onChange={(e) => setForm({ ...form, desc: e.target.value })} placeholder="Short description" />
+
+        <label style={{ display: "block", marginBottom: 14 }}>
+          <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, color: COLORS.cocoa, marginBottom: 6 }}>Product Photo (optional)</span>
+          <input type="file" accept="image/*" onChange={handleImage} style={{ fontFamily: "Nunito, sans-serif", fontSize: 13 }} />
+          {imgError && <div style={{ color: "#C6296B", fontSize: 12, fontWeight: 700, marginTop: 6 }}>{imgError}</div>}
+          {form.image && <img src={form.image} alt="preview" style={{ width: 90, height: 90, objectFit: "cover", borderRadius: 12, marginTop: 8, border: `2px solid ${COLORS.line}` }} />}
+        </label>
+
         <Button variant="primary" onClick={submit}><Plus size={15} /> Add Product</Button>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px,1fr))", gap: 14, marginBottom: 28 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px,1fr))", gap: 14, marginBottom: 28 }}>
         {products.map((p) => (
           <div key={p.id} style={{ background: "#fff", border: `2px solid ${COLORS.line}`, borderRadius: 16, padding: 14, position: "relative" }}>
             <button onClick={() => deleteProduct(p.id)} style={{ position: "absolute", top: 10, right: 10, background: "none", border: "none", color: "#C6296B", cursor: "pointer" }}><Trash2 size={15} /></button>
-            <div style={{ fontSize: 30 }}>{p.emoji}</div>
+            {p.image ? (
+              <img src={p.image} alt={p.name} style={{ width: "100%", height: 90, objectFit: "cover", borderRadius: 10, marginBottom: 8 }} />
+            ) : (
+              <div style={{ fontSize: 30 }}>{p.emoji}</div>
+            )}
             <div style={{ fontFamily: "Nunito, sans-serif", fontWeight: 800, fontSize: 14, color: COLORS.cocoa, marginTop: 6 }}>{p.name}</div>
-            <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 12, color: COLORS.magenta, fontWeight: 700 }}>₹{p.price} · {p.unit}</div>
+            <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 12, color: COLORS.magenta, fontWeight: 700 }}>₹{p.price} · {p.weight || p.unit}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+              <span style={{ fontFamily: "Nunito, sans-serif", fontSize: 11.5, color: "#8A6C5F", fontWeight: 700 }}>Stock:</span>
+              <input
+                type="number" value={p.stock ?? 0}
+                onChange={(e) => updateProduct(p.id, { stock: Number(e.target.value) || 0 })}
+                style={{ width: 60, padding: "4px 6px", borderRadius: 8, border: `2px solid ${COLORS.line}`, fontFamily: "Nunito, sans-serif", fontWeight: 800, fontSize: 12.5 }}
+              />
+              {(p.stock ?? 0) <= 0 && <Pill bg="#F3E1E1" color="#A03030">Out of stock</Pill>}
+            </div>
           </div>
         ))}
       </div>
@@ -556,7 +668,7 @@ function AdminProductsPage({ products, addProduct, deleteProduct, sheetUrl, setS
       <div style={{ background: COLORS.blush, border: `2px solid ${COLORS.line}`, borderRadius: 16, padding: 16 }}>
         <div style={{ fontFamily: "Nunito, sans-serif", fontWeight: 800, color: COLORS.cocoa, marginBottom: 6 }}>Google Sheets Sync</div>
         <p style={{ fontFamily: "Nunito, sans-serif", fontSize: 12, color: "#6B4A3E", marginBottom: 10 }}>
-          Paste your deployed Google Apps Script Web App URL here so every order is written straight to your Google Sheet and the customer gets an email notification. See the included <b>google-apps-script-backend.gs</b> and <b>SETUP.md</b> files for the 5-minute setup.
+          Paste your deployed Google Apps Script Web App URL here so every order is written straight to your Google Sheet and the customer gets an email notification.
         </p>
         <Field label="Apps Script Web App URL" value={sheetUrl} onChange={(e) => setSheetUrl(e.target.value)} placeholder="https://script.google.com/macros/s/XXXX/exec" />
         <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 11.5, color: sheetUrl ? "#2E8F55" : "#B08A7A", fontWeight: 700 }}>
@@ -568,33 +680,66 @@ function AdminProductsPage({ products, addProduct, deleteProduct, sheetUrl, setS
 }
 
 function AdminOrdersPage({ orders, updateStatus }) {
-  const statuses = ["Placed", "Confirmed", "Preparing", "Out for Delivery", "Delivered"];
+  const postAcceptStatuses = ["Confirmed", "Preparing", "Out for Delivery", "Delivered"];
+  const pending = orders.filter((o) => o.status === "Pending");
+  const rest = orders.filter((o) => o.status !== "Pending");
+
+  const OrderCard = ({ o }) => (
+    <div style={{ background: "#fff", border: `2px solid ${o.status === "Pending" ? COLORS.marigold : COLORS.line}`, borderRadius: 16, padding: 16, marginBottom: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+        <div>
+          <div style={{ fontFamily: "Nunito, sans-serif", fontWeight: 800, color: COLORS.cocoa }}>#{o.id} · {o.address.name}</div>
+          <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 12, color: "#8A6C5F" }}>{o.address.line1}, {o.address.city} - {o.address.pincode} · 📞 {o.address.phone}</div>
+          <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 12, color: "#8A6C5F", marginTop: 4 }}>{new Date(o.date).toLocaleString()}</div>
+        </div>
+
+        {o.status === "Pending" ? (
+          <div style={{ display: "flex", gap: 8 }}>
+            <Button variant="ghost" style={{ padding: "8px 12px", fontSize: 12.5, color: "#A03030", borderColor: "#F1C6C6" }} onClick={() => updateStatus(o.id, "Declined")}>
+              Decline
+            </Button>
+            <Button variant="primary" style={{ padding: "8px 14px", fontSize: 12.5 }} onClick={() => updateStatus(o.id, "Confirmed")}>
+              <Check size={14} /> Accept Order
+            </Button>
+          </div>
+        ) : o.status === "Declined" ? (
+          <Pill color={statusColor(o.status)} bg="#F3E1E1">Declined</Pill>
+        ) : (
+          <select value={o.status} onChange={(e) => updateStatus(o.id, e.target.value)} style={{
+            height: 34, borderRadius: 10, border: `2px solid ${COLORS.line}`, fontFamily: "Nunito, sans-serif", fontWeight: 800,
+            fontSize: 12.5, color: statusColor(o.status), padding: "0 8px", background: "#fff",
+          }}>
+            {postAcceptStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        )}
+      </div>
+      <div style={{ marginTop: 10, fontFamily: "Nunito, sans-serif", fontSize: 13, color: "#6B4A3E" }}>
+        {o.items.map((i) => <div key={i.id}>{i.name} × {i.qty} — ₹{i.price * i.qty}</div>)}
+      </div>
+      <div style={{ marginTop: 6, fontWeight: 800, color: COLORS.magenta, fontFamily: "Nunito, sans-serif" }}>Total ₹{o.total}</div>
+    </div>
+  );
+
   return (
     <div style={{ maxWidth: 900, margin: "0 auto", padding: "24px 18px 60px" }}>
-      <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 24, color: COLORS.cocoa, marginBottom: 16 }}>Admin · All Orders</h2>
+      <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 24, color: COLORS.cocoa, marginBottom: 4 }}>Admin · All Orders</h2>
+      <p style={{ fontFamily: "Nunito, sans-serif", fontSize: 13, color: "#8A6C5F", marginBottom: 18 }}>New orders arrive as Pending — accept them to confirm and notify the customer.</p>
+
+      {pending.length > 0 && (
+        <>
+          <div style={{ fontFamily: "Nunito, sans-serif", fontWeight: 800, fontSize: 13, color: "#B4720F", marginBottom: 10 }}>
+            🔔 Awaiting your response ({pending.length})
+          </div>
+          {pending.slice().reverse().map((o) => <OrderCard key={o.id} o={o} />)}
+          <div style={{ margin: "18px 0" }} />
+        </>
+      )}
+
       {orders.length === 0 ? (
         <div style={{ color: "#8A6C5F", fontFamily: "Nunito, sans-serif", textAlign: "center", padding: "40px 0" }}>No orders placed yet.</div>
-      ) : orders.slice().reverse().map((o) => (
-        <div key={o.id} style={{ background: "#fff", border: `2px solid ${COLORS.line}`, borderRadius: 16, padding: 16, marginBottom: 12 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-            <div>
-              <div style={{ fontFamily: "Nunito, sans-serif", fontWeight: 800, color: COLORS.cocoa }}>#{o.id} · {o.address.name}</div>
-              <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 12, color: "#8A6C5F" }}>{o.address.line1}, {o.address.city} - {o.address.pincode} · 📞 {o.address.phone}</div>
-              <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 12, color: "#8A6C5F", marginTop: 4 }}>{new Date(o.date).toLocaleString()}</div>
-            </div>
-            <select value={o.status} onChange={(e) => updateStatus(o.id, e.target.value)} style={{
-              height: 34, borderRadius: 10, border: `2px solid ${COLORS.line}`, fontFamily: "Nunito, sans-serif", fontWeight: 800,
-              fontSize: 12.5, color: statusColor(o.status), padding: "0 8px", background: "#fff",
-            }}>
-              {statuses.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </div>
-          <div style={{ marginTop: 10, fontFamily: "Nunito, sans-serif", fontSize: 13, color: "#6B4A3E" }}>
-            {o.items.map((i) => <div key={i.id}>{i.name} × {i.qty} — ₹{i.price * i.qty}</div>)}
-          </div>
-          <div style={{ marginTop: 6, fontWeight: 800, color: COLORS.magenta, fontFamily: "Nunito, sans-serif" }}>Total ₹{o.total}</div>
-        </div>
-      ))}
+      ) : (
+        rest.slice().reverse().map((o) => <OrderCard key={o.id} o={o} />)
+      )}
     </div>
   );
 }
@@ -640,6 +785,11 @@ export default function LittleTreatsApp() {
 
   const addProduct = (p) => { setProducts((arr) => [...arr, p]); pushToast(`${p.name} added to storefront`); };
   const deleteProduct = (id) => setProducts((arr) => arr.filter((p) => p.id !== id));
+  const updateProduct = (id, patch) => setProducts((arr) => arr.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+
+  const resetPassword = (email, newPassword) => {
+    setUsers((arr) => arr.map((u) => (u.email === email ? { ...u, password: newPassword } : u)));
+  };
 
   // Writes the order row to Google Sheets via the deployed Apps Script Web App
   // (see google-apps-script-backend.gs). Falls back silently to local-only
@@ -664,6 +814,16 @@ export default function LittleTreatsApp() {
       const p = products.find((pp) => pp.id === c.id);
       return { id: p.id, name: p.name, price: p.price, qty: c.qty };
     });
+
+    const insufficient = items.find((i) => {
+      const p = products.find((pp) => pp.id === i.id);
+      return (p?.stock ?? 0) < i.qty;
+    });
+    if (insufficient) {
+      pushToast(`Sorry, "${insufficient.name}" doesn't have enough stock left.`);
+      return;
+    }
+
     const total = items.reduce((s, i) => s + i.price * i.qty, 0);
     const order = {
       id: String(Date.now()).slice(-6),
@@ -671,20 +831,46 @@ export default function LittleTreatsApp() {
       userName: user.name,
       userEmail: user.email,
       items, total, address,
-      status: "Placed",
+      status: "Pending",
       date: new Date().toISOString(),
     };
     setOrders((o) => [...o, order]);
+    setProducts((arr) => arr.map((p) => {
+      const bought = items.find((i) => i.id === p.id);
+      return bought ? { ...p, stock: Math.max(0, (p.stock ?? 0) - bought.qty) } : p;
+    }));
     setLastOrder(order);
     setCart([]);
     syncOrderToSheet(order);
-    pushToast(`Order #${order.id} confirmed — notification sent!`);
+    pushToast(`Order #${order.id} received — pending confirmation!`);
     setPage("confirmation");
   };
 
+  // Pushes an order status change to the sheet too, so Admin decisions
+  // (accept/decline/progress) stay reflected in your Google Sheet.
+  const syncStatusToSheet = async (orderId, status, orderRef) => {
+    if (!sheetUrl) return;
+    try {
+      await fetch(sheetUrl, {
+        method: "POST",
+        mode: "no-cors",
+        headers: { "Content-Type": "text/plain" },
+        body: JSON.stringify({ action: "updateStatus", orderId, status, userEmail: orderRef?.userEmail, order: orderRef }),
+      });
+    } catch (e) {
+      console.warn("Status sync skipped:", e);
+    }
+  };
+
   const updateStatus = (id, status) => {
+    const orderRef = orders.find((o) => o.id === id);
     setOrders((os) => os.map((o) => (o.id === id ? { ...o, status } : o)));
-    pushToast(`Order #${id} marked "${status}" — customer notified`);
+    syncStatusToSheet(id, status, orderRef);
+    pushToast(
+      status === "Confirmed" ? `Order #${id} accepted — customer notified!` :
+      status === "Declined" ? `Order #${id} declined — customer notified` :
+      `Order #${id} marked "${status}" — customer notified`
+    );
   };
 
   const cartCount = useMemo(() => cart.reduce((s, i) => s + i.qty, 0), [cart]);
@@ -693,15 +879,15 @@ export default function LittleTreatsApp() {
   if (user?.role === "admin") {
     content = page === "admin-orders"
       ? <AdminOrdersPage orders={orders} updateStatus={updateStatus} />
-      : <AdminProductsPage products={products} addProduct={addProduct} deleteProduct={deleteProduct} sheetUrl={sheetUrl} setSheetUrl={setSheetUrl} />;
+      : <AdminProductsPage products={products} addProduct={addProduct} deleteProduct={deleteProduct} updateProduct={updateProduct} sheetUrl={sheetUrl} setSheetUrl={setSheetUrl} />;
   } else {
     switch (page) {
       case "products": content = <ProductsPage products={products} addToCart={addToCart} toast={pushToast} />; break;
       case "cart": content = <CartPage cart={cart} products={products} updateQty={updateQty} removeFromCart={removeFromCart} setPage={setPage} user={user} />; break;
-      case "checkout": content = user ? <CheckoutPage cart={cart} products={products} placeOrder={placeOrder} setPage={setPage} /> : <LoginPage setPage={setPage} login={login} users={users} />; break;
+      case "checkout": content = user ? <CheckoutPage cart={cart} products={products} placeOrder={placeOrder} setPage={setPage} /> : <LoginPage setPage={setPage} login={login} users={users} resetPassword={resetPassword} />; break;
       case "confirmation": content = <ConfirmationPage lastOrder={lastOrder} setPage={setPage} />; break;
-      case "orders": content = user ? <OrdersPage orders={orders} user={user} setPage={setPage} /> : <LoginPage setPage={setPage} login={login} users={users} />; break;
-      case "login": content = <LoginPage setPage={setPage} login={login} users={users} />; break;
+      case "orders": content = user ? <OrdersPage orders={orders} user={user} setPage={setPage} /> : <LoginPage setPage={setPage} login={login} users={users} resetPassword={resetPassword} />; break;
+      case "login": content = <LoginPage setPage={setPage} login={login} users={users} resetPassword={resetPassword} />; break;
       default: content = <HomePage setPage={setPage} />;
     }
   }
