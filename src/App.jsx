@@ -383,8 +383,10 @@ function CartPage({ cart, products, updateQty, removeFromCart, setPage, user }) 
   );
 }
 
-function CheckoutPage({ cart, products, placeOrder, setPage }) {
-  const [address, setAddress] = useState({ name: "", phone: "", line1: "", city: "", pincode: "" });
+function CheckoutPage({ cart, products, placeOrder, setPage, user }) {
+  const [address, setAddress] = useState({
+    name: user?.name || "", phone: user?.phone || "", line1: user?.address || "", city: user?.city || "", pincode: user?.pincode || "",
+  });
   const items = cart.map((c) => ({ ...c, product: products.find((p) => p.id === c.id) })).filter((i) => i.product);
   const total = items.reduce((s, i) => s + i.product.price * i.qty, 0);
   const canSubmit = address.name && address.phone && address.line1 && address.city && address.pincode;
@@ -932,6 +934,11 @@ export default function LittleTreatsApp() {
     setLastOrder(order);
     setCart([]);
     syncOrderToSheet(order);
+
+    // Remember this address on the account for next time.
+    setUser((u) => u ? { ...u, phone: address.phone, address: address.line1, city: address.city, pincode: address.pincode } : u);
+    if (sheetUrl) callSheet({ action: "saveUserAddress", email: user.email, address });
+
     pushToast(`Order #${order.id} received — pending confirmation!`);
     setPage("confirmation");
   };
@@ -970,7 +977,7 @@ export default function LittleTreatsApp() {
     switch (page) {
       case "products": content = <ProductsPage products={products} addToCart={addToCart} toast={pushToast} />; break;
       case "cart": content = <CartPage cart={cart} products={products} updateQty={updateQty} removeFromCart={removeFromCart} setPage={setPage} user={user} />; break;
-      case "checkout": content = user ? <CheckoutPage cart={cart} products={products} placeOrder={placeOrder} setPage={setPage} /> : <LoginPage setPage={setPage} loginUser={loginUser} registerUser={registerUser} resetPassword={resetPassword} authBusy={authBusy} />; break;
+      case "checkout": content = user ? <CheckoutPage cart={cart} products={products} placeOrder={placeOrder} setPage={setPage} user={user} /> : <LoginPage setPage={setPage} loginUser={loginUser} registerUser={registerUser} resetPassword={resetPassword} authBusy={authBusy} />; break;
       case "confirmation": content = <ConfirmationPage lastOrder={lastOrder} setPage={setPage} />; break;
       case "orders": content = user ? <OrdersPage orders={orders} user={user} setPage={setPage} /> : <LoginPage setPage={setPage} loginUser={loginUser} registerUser={registerUser} resetPassword={resetPassword} authBusy={authBusy} />; break;
       case "login": content = <LoginPage setPage={setPage} loginUser={loginUser} registerUser={registerUser} resetPassword={resetPassword} authBusy={authBusy} />; break;

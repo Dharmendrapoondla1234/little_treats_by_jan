@@ -100,3 +100,7 @@ Happy to build this out on request.
 ### Redeploy after this update
 
 Same as before: paste the new `.gs` file over your script → Save → **Deploy → Manage deployments → pencil icon → Version: New version → Deploy**. Same `/exec` URL, new code.
+
+## Saved customer addresses
+
+The Users sheet now has Phone, Address, City, Pincode columns too. After a customer's first order, their address is saved to their account automatically — their next checkout pre-fills with it instead of starting blank. This updates every time they place a new order (so it always reflects their most recent address).

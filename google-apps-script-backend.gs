@@ -30,7 +30,7 @@ const ORDERS_SHEET = "Orders";
 const ORDERS_HEADERS = ["Order ID", "Date", "Customer Name", "Customer Email", "Phone", "Address", "City", "Pincode", "Items", "Total (₹)", "Status"];
 
 const USERS_SHEET = "Users";
-const USERS_HEADERS = ["Email", "Name", "PasswordHash", "Salt", "Role", "CreatedAt"];
+const USERS_HEADERS = ["Email", "Name", "PasswordHash", "Salt", "Role", "CreatedAt", "Phone", "Address", "City", "Pincode"];
 
 const PRODUCTS_SHEET = "Products";
 const PRODUCTS_HEADERS = ["ID", "Name", "Price", "Weight", "Stock", "Tag", "Emoji", "Description", "UpdatedAt"];
@@ -77,6 +77,7 @@ function handleAction(body) {
     case "registerUser": return registerUser(body.user);
     case "loginUser": return loginUser(body.email, body.password);
     case "resetPassword": return resetPassword(body.email, body.newPassword);
+    case "saveUserAddress": return saveUserAddress(body.email, body.address);
 
     case "getProducts": return { ok: true, products: getAllProducts() };
     case "addProduct": return addProduct(body.product);
@@ -194,7 +195,13 @@ function loginUser(email, password) {
   const hash = hashPassword(password, match.obj.Salt);
   if (hash !== match.obj.PasswordHash) return { ok: false, error: "Incorrect password." };
 
-  return { ok: true, user: { id: match.obj.Email, name: match.obj.Name, email: match.obj.Email, role: match.obj.Role } };
+  return {
+    ok: true,
+    user: {
+      id: match.obj.Email, name: match.obj.Name, email: match.obj.Email, role: match.obj.Role,
+      phone: match.obj.Phone || "", address: match.obj.Address || "", city: match.obj.City || "", pincode: match.obj.Pincode || "",
+    }
+  };
 }
 
 function resetPassword(email, newPassword) {
@@ -209,6 +216,21 @@ function resetPassword(email, newPassword) {
   const hash = hashPassword(newPassword, salt);
   sheet.getRange(match.rowIndex, 3).setValue(hash); // PasswordHash column
   sheet.getRange(match.rowIndex, 4).setValue(salt);  // Salt column
+  return { ok: true };
+}
+
+function saveUserAddress(email, address) {
+  const sheet = getUsersSheet();
+  const rows = sheetRowsAsObjects(sheet);
+  const target = String(email || "").toLowerCase().trim();
+  const match = rows.find(r => String(r.obj.Email).toLowerCase() === target);
+  if (!match) return { ok: false, error: "No account found with that email." };
+
+  // Columns: 7=Phone, 8=Address, 9=City, 10=Pincode
+  sheet.getRange(match.rowIndex, 7).setValue(address.phone || "");
+  sheet.getRange(match.rowIndex, 8).setValue(address.line1 || "");
+  sheet.getRange(match.rowIndex, 9).setValue(address.city || "");
+  sheet.getRange(match.rowIndex, 10).setValue(address.pincode || "");
   return { ok: true };
 }
 
