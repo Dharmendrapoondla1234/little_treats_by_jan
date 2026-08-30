@@ -40,13 +40,20 @@ const COLORS = {
 /* ---------------- Seed data ---------------- */
 
 const SEED_PRODUCTS = [
-  { id: "p1", name: "Double Choco Bites", price: 249, unit: "250g jar", weight: "250g", stock: 25, tag: "Bestseller", emoji: "🍫", image: "", desc: "Rich cocoa cookie bites rolled in dark chocolate chunks." },
-  { id: "p2", name: "Classic Butter Cookies", price: 199, unit: "250g jar", weight: "250g", stock: 30, tag: "Bestseller", emoji: "🍪", image: "", desc: "Melt-in-mouth butter cookies, small-batch baked." },
-  { id: "p3", name: "Choco Chip Crunch", price: 229, unit: "250g jar", weight: "250g", stock: 18, tag: "New", emoji: "🍪", image: "", desc: "Golden cookies loaded with chocolate chips." },
-  { id: "p4", name: "Assorted Biscuit Mix", price: 279, unit: "300g jar", weight: "300g", stock: 12, tag: "Combo", emoji: "🧁", image: "", desc: "Our four best flavours mixed into one happy jar." },
-  { id: "p5", name: "Nutty Cocoa Rounds", price: 259, unit: "250g jar", weight: "250g", stock: 0, tag: "New", emoji: "🍫", image: "", desc: "Dark cocoa cookies studded with roasted nuts." },
-  { id: "p6", name: "Honey Oat Biscuits", price: 219, unit: "250g jar", weight: "250g", stock: 20, tag: "", emoji: "🍪", image: "", desc: "Wholesome oats sweetened with honey, lightly crisp." },
+  { id: "p1", name: "Double Choco Bites", price: 249, unit: "250g jar", weight: "250g", stock: 25, tag: "Bestseller", emoji: "🍫", image: "", discountPercent: 15, desc: "Rich cocoa cookie bites rolled in dark chocolate chunks." },
+  { id: "p2", name: "Classic Butter Cookies", price: 199, unit: "250g jar", weight: "250g", stock: 30, tag: "Bestseller", emoji: "🍪", image: "", discountPercent: 0, desc: "Melt-in-mouth butter cookies, small-batch baked." },
+  { id: "p3", name: "Choco Chip Crunch", price: 229, unit: "250g jar", weight: "250g", stock: 18, tag: "New", emoji: "🍪", image: "", discountPercent: 0, desc: "Golden cookies loaded with chocolate chips." },
+  { id: "p4", name: "Assorted Biscuit Mix", price: 279, unit: "300g jar", weight: "300g", stock: 12, tag: "Combo", emoji: "🧁", image: "", discountPercent: 10, desc: "Our four best flavours mixed into one happy jar." },
+  { id: "p5", name: "Nutty Cocoa Rounds", price: 259, unit: "250g jar", weight: "250g", stock: 0, tag: "New", emoji: "🍫", image: "", discountPercent: 0, desc: "Dark cocoa cookies studded with roasted nuts." },
+  { id: "p6", name: "Honey Oat Biscuits", price: 219, unit: "250g jar", weight: "250g", stock: 20, tag: "", emoji: "🍪", image: "", discountPercent: 0, desc: "Wholesome oats sweetened with honey, lightly crisp." },
 ];
+
+// Rounds to the nearest rupee for a clean displayed/charged price.
+function effectivePrice(product) {
+  const pct = Number(product?.discountPercent) || 0;
+  if (pct <= 0) return product.price;
+  return Math.round(product.price * (1 - pct / 100));
+}
 
 const ADMIN_EMAIL = "admin@littletreats.com";
 const ADMIN_PASSWORD = "admin123";
@@ -281,6 +288,8 @@ function ProductsPage({ products, addToCart, toast }) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px,1fr))", gap: 16 }}>
         {products.map((p) => {
           const outOfStock = (p.stock ?? 0) <= 0;
+          const hasDiscount = Number(p.discountPercent) > 0;
+          const finalPrice = effectivePrice(p);
           return (
             <div key={p.id} style={{ background: "#fff", borderRadius: 20, border: `2px solid ${COLORS.line}`, overflow: "hidden", display: "flex", flexDirection: "column", opacity: outOfStock ? 0.75 : 1 }}>
               <div style={{ background: COLORS.blush, textAlign: "center", padding: p.image ? 0 : "22px 0", position: "relative" }}>
@@ -292,6 +301,9 @@ function ProductsPage({ products, addToCart, toast }) {
                 {outOfStock && (
                   <div style={{ position: "absolute", top: 8, right: 8, background: COLORS.cocoa, color: "#fff", fontSize: 10.5, fontWeight: 800, padding: "3px 9px", borderRadius: 999, letterSpacing: 0.3 }}>OUT OF STOCK</div>
                 )}
+                {hasDiscount && !outOfStock && (
+                  <div style={{ position: "absolute", top: 8, left: 8, background: COLORS.mint, color: "#fff", fontSize: 10.5, fontWeight: 800, padding: "3px 9px", borderRadius: 999, letterSpacing: 0.3 }}>{p.discountPercent}% OFF</div>
+                )}
               </div>
               <div style={{ padding: 16, display: "flex", flexDirection: "column", flex: 1 }}>
                 {p.tag && !outOfStock && <div style={{ marginBottom: 6 }}><Pill bg="#FFF1D9" color="#B4720F">{p.tag}</Pill></div>}
@@ -299,7 +311,10 @@ function ProductsPage({ products, addToCart, toast }) {
                 <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 12, color: "#8A6C5F", margin: "4px 0 8px" }}>{p.desc}</div>
                 <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 11.5, color: "#B08A7A", marginBottom: 10 }}>{p.weight || p.unit}</div>
                 <div style={{ marginTop: "auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <span style={{ fontFamily: "'Playfair Display', serif", fontWeight: 800, fontSize: 19, color: COLORS.magenta }}>₹{p.price}</span>
+                  <span style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                    <span style={{ fontFamily: "'Playfair Display', serif", fontWeight: 800, fontSize: 19, color: COLORS.magenta }}>₹{finalPrice}</span>
+                    {hasDiscount && <span style={{ fontFamily: "Nunito, sans-serif", fontSize: 12.5, color: "#B08A7A", textDecoration: "line-through" }}>₹{p.price}</span>}
+                  </span>
                   <Button variant="primary" disabled={outOfStock} onClick={() => { addToCart(p.id); toast(`${p.name} added to cart`); }} style={{ padding: "9px 14px", fontSize: 13 }}>
                     {outOfStock ? "Unavailable" : (<><Plus size={14} /> Add</>)}
                   </Button>
@@ -340,7 +355,7 @@ function BiteProgress({ step }) {
 
 function CartPage({ cart, products, updateQty, removeFromCart, setPage, user }) {
   const items = cart.map((c) => ({ ...c, product: products.find((p) => p.id === c.id) })).filter((i) => i.product);
-  const total = items.reduce((s, i) => s + i.product.price * i.qty, 0);
+  const total = items.reduce((s, i) => s + effectivePrice(i.product) * i.qty, 0);
 
   return (
     <div style={{ maxWidth: 700, margin: "0 auto", padding: "24px 18px 60px" }}>
@@ -360,7 +375,7 @@ function CartPage({ cart, products, updateQty, removeFromCart, setPage, user }) 
                 <div style={{ fontSize: 30, background: COLORS.blush, borderRadius: 12, width: 50, height: 50, display: "flex", alignItems: "center", justifyContent: "center" }}>{i.product.emoji}</div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontFamily: "Nunito, sans-serif", fontWeight: 800, fontSize: 14, color: COLORS.cocoa }}>{i.product.name}</div>
-                  <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 12.5, color: COLORS.magenta, fontWeight: 700 }}>₹{i.product.price}</div>
+                  <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 12.5, color: COLORS.magenta, fontWeight: 700 }}>₹{effectivePrice(i.product)}</div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, background: COLORS.cream, borderRadius: 10, padding: "4px 8px" }}>
                   <button onClick={() => updateQty(i.id, i.qty - 1)} style={{ border: "none", background: "none", cursor: "pointer", color: COLORS.magenta }}><Minus size={15} /></button>
@@ -388,7 +403,7 @@ function CheckoutPage({ cart, products, placeOrder, setPage, user }) {
     name: user?.name || "", phone: user?.phone || "", line1: user?.address || "", city: user?.city || "", pincode: user?.pincode || "",
   });
   const items = cart.map((c) => ({ ...c, product: products.find((p) => p.id === c.id) })).filter((i) => i.product);
-  const total = items.reduce((s, i) => s + i.product.price * i.qty, 0);
+  const total = items.reduce((s, i) => s + effectivePrice(i.product) * i.qty, 0);
   const canSubmit = address.name && address.phone && address.line1 && address.city && address.pincode;
 
   return (
@@ -412,7 +427,7 @@ function CheckoutPage({ cart, products, placeOrder, setPage, user }) {
         <div style={{ fontWeight: 800, fontSize: 13, color: COLORS.cocoa, marginBottom: 8 }}>Order Summary</div>
         {items.map((i) => (
           <div key={i.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "#6B4A3E", marginBottom: 4 }}>
-            <span>{i.product.name} × {i.qty}</span><span>₹{i.product.price * i.qty}</span>
+            <span>{i.product.name} × {i.qty}</span><span>₹{effectivePrice(i.product) * i.qty}</span>
           </div>
         ))}
         <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 800, fontSize: 14, color: COLORS.cocoa, marginTop: 6, paddingTop: 6, borderTop: `1px dashed ${COLORS.marigold}` }}>
@@ -544,11 +559,6 @@ function LoginPage({ setPage, loginUser, registerUser, resetPassword, authBusy }
             </>
           )}
         </div>
-        {mode !== "forgot" && (
-          <div style={{ marginTop: 10, fontFamily: "Nunito, sans-serif", fontSize: 11, color: "#B08A7A", textAlign: "center" }}>
-            Admin demo: {ADMIN_EMAIL} / {ADMIN_PASSWORD}
-          </div>
-        )}
       </div>
     </div>
   );
@@ -594,7 +604,7 @@ function OrdersPage({ orders, user, setPage }) {
 /* ---------------- Admin ---------------- */
 
 function AdminProductsPage({ products, addProduct, deleteProduct, updateProduct, sheetUrl, setSheetUrl }) {
-  const [form, setForm] = useState({ name: "", price: "", weight: "", stock: "", emoji: "🍪", desc: "", tag: "", image: "" });
+  const [form, setForm] = useState({ name: "", price: "", weight: "", stock: "", discountPercent: "", emoji: "🍪", desc: "", tag: "", image: "" });
   const [imgError, setImgError] = useState("");
 
   const handleImage = (e) => {
@@ -613,15 +623,16 @@ function AdminProductsPage({ products, addProduct, deleteProduct, updateProduct,
       ...form, id: "p" + Date.now(),
       price: Number(form.price),
       stock: Number(form.stock) || 0,
+      discountPercent: Math.min(90, Math.max(0, Number(form.discountPercent) || 0)),
       unit: form.weight,
     });
-    setForm({ name: "", price: "", weight: "", stock: "", emoji: "🍪", desc: "", tag: "", image: "" });
+    setForm({ name: "", price: "", weight: "", stock: "", discountPercent: "", emoji: "🍪", desc: "", tag: "", image: "" });
   };
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto", padding: "24px 18px 60px" }}>
       <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 24, color: COLORS.cocoa, marginBottom: 4 }}>Admin · Products</h2>
-      <p style={{ fontFamily: "Nunito, sans-serif", fontSize: 13, color: "#8A6C5F", marginBottom: 18 }}>Add new treats, set stock levels, and upload product photos.</p>
+      <p style={{ fontFamily: "Nunito, sans-serif", fontSize: 13, color: "#8A6C5F", marginBottom: 18 }}>Add new treats, set stock levels, discounts, and upload product photos.</p>
 
       <div style={{ background: "#fff", border: `2px solid ${COLORS.line}`, borderRadius: 18, padding: 18, marginBottom: 24 }}>
         <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 12 }}>
@@ -629,8 +640,9 @@ function AdminProductsPage({ products, addProduct, deleteProduct, updateProduct,
           <Field label="Price (₹)" type="number" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} placeholder="249" />
           <Field label="Weight / Size" value={form.weight} onChange={(e) => setForm({ ...form, weight: e.target.value })} placeholder="250g jar" />
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
           <Field label="Stock Quantity" type="number" value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} placeholder="20" />
+          <Field label="Discount %" type="number" value={form.discountPercent} onChange={(e) => setForm({ ...form, discountPercent: e.target.value })} placeholder="0" />
           <Field label="Emoji Icon (fallback)" value={form.emoji} onChange={(e) => setForm({ ...form, emoji: e.target.value })} placeholder="🍪" />
           <Field label="Tag (optional)" value={form.tag} onChange={(e) => setForm({ ...form, tag: e.target.value })} placeholder="New" />
         </div>
@@ -656,8 +668,14 @@ function AdminProductsPage({ products, addProduct, deleteProduct, updateProduct,
               <div style={{ fontSize: 30 }}>{p.emoji}</div>
             )}
             <div style={{ fontFamily: "Nunito, sans-serif", fontWeight: 800, fontSize: 14, color: COLORS.cocoa, marginTop: 6 }}>{p.name}</div>
-            <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 12, color: COLORS.magenta, fontWeight: 700 }}>₹{p.price} · {p.weight || p.unit}</div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+            <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 12, color: COLORS.magenta, fontWeight: 700 }}>
+              {Number(p.discountPercent) > 0 ? (
+                <>₹{effectivePrice(p)} <span style={{ textDecoration: "line-through", color: "#B08A7A", fontWeight: 600 }}>₹{p.price}</span></>
+              ) : (
+                <>₹{p.price}</>
+              )} · {p.weight || p.unit}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
               <span style={{ fontFamily: "Nunito, sans-serif", fontSize: 11.5, color: "#8A6C5F", fontWeight: 700 }}>Stock:</span>
               <input
                 type="number" value={p.stock ?? 0}
@@ -665,6 +683,15 @@ function AdminProductsPage({ products, addProduct, deleteProduct, updateProduct,
                 style={{ width: 60, padding: "4px 6px", borderRadius: 8, border: `2px solid ${COLORS.line}`, fontFamily: "Nunito, sans-serif", fontWeight: 800, fontSize: 12.5 }}
               />
               {(p.stock ?? 0) <= 0 && <Pill bg="#F3E1E1" color="#A03030">Out of stock</Pill>}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+              <span style={{ fontFamily: "Nunito, sans-serif", fontSize: 11.5, color: "#8A6C5F", fontWeight: 700 }}>Discount %:</span>
+              <input
+                type="number" value={p.discountPercent ?? 0}
+                onChange={(e) => updateProduct(p.id, { discountPercent: Math.min(90, Math.max(0, Number(e.target.value) || 0)) })}
+                style={{ width: 60, padding: "4px 6px", borderRadius: 8, border: `2px solid ${COLORS.line}`, fontFamily: "Nunito, sans-serif", fontWeight: 800, fontSize: 12.5 }}
+              />
+              {Number(p.discountPercent) > 0 && <Pill bg="#E3F3F1" color={COLORS.mint}>{p.discountPercent}% OFF</Pill>}
             </div>
           </div>
         ))}
@@ -907,7 +934,7 @@ export default function LittleTreatsApp() {
   const placeOrder = (address) => {
     const items = cart.map((c) => {
       const p = products.find((pp) => pp.id === c.id);
-      return { id: p.id, name: p.name, price: p.price, qty: c.qty };
+      return { id: p.id, name: p.name, price: effectivePrice(p), qty: c.qty };
     });
 
     const insufficient = items.find((i) => {

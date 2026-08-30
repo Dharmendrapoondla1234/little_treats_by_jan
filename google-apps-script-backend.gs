@@ -33,15 +33,15 @@ const USERS_SHEET = "Users";
 const USERS_HEADERS = ["Email", "Name", "PasswordHash", "Salt", "Role", "CreatedAt", "Phone", "Address", "City", "Pincode"];
 
 const PRODUCTS_SHEET = "Products";
-const PRODUCTS_HEADERS = ["ID", "Name", "Price", "Weight", "Stock", "Tag", "Emoji", "Description", "UpdatedAt"];
+const PRODUCTS_HEADERS = ["ID", "Name", "Price", "Weight", "Stock", "Tag", "Emoji", "Description", "Discount", "UpdatedAt"];
 
 const SEED_PRODUCTS = [
-  ["p1", "Double Choco Bites", 249, "250g", 25, "Bestseller", "🍫", "Rich cocoa cookie bites rolled in dark chocolate chunks."],
-  ["p2", "Classic Butter Cookies", 199, "250g", 30, "Bestseller", "🍪", "Melt-in-mouth butter cookies, small-batch baked."],
-  ["p3", "Choco Chip Crunch", 229, "250g", 18, "New", "🍪", "Golden cookies loaded with chocolate chips."],
-  ["p4", "Assorted Biscuit Mix", 279, "300g", 12, "Combo", "🧁", "Our four best flavours mixed into one happy jar."],
-  ["p5", "Nutty Cocoa Rounds", 259, "250g", 0, "New", "🍫", "Dark cocoa cookies studded with roasted nuts."],
-  ["p6", "Honey Oat Biscuits", 219, "250g", 20, "", "🍪", "Wholesome oats sweetened with honey, lightly crisp."],
+  ["p1", "Double Choco Bites", 249, "250g", 25, "Bestseller", "🍫", "Rich cocoa cookie bites rolled in dark chocolate chunks.", 15],
+  ["p2", "Classic Butter Cookies", 199, "250g", 30, "Bestseller", "🍪", "Melt-in-mouth butter cookies, small-batch baked.", 0],
+  ["p3", "Choco Chip Crunch", 229, "250g", 18, "New", "🍪", "Golden cookies loaded with chocolate chips.", 0],
+  ["p4", "Assorted Biscuit Mix", 279, "300g", 12, "Combo", "🧁", "Our four best flavours mixed into one happy jar.", 10],
+  ["p5", "Nutty Cocoa Rounds", 259, "250g", 0, "New", "🍫", "Dark cocoa cookies studded with roasted nuts.", 0],
+  ["p6", "Honey Oat Biscuits", 219, "250g", 20, "", "🍪", "Wholesome oats sweetened with honey, lightly crisp.", 0],
 ];
 
 /* ------------------------- entry points ------------------------- */
@@ -252,7 +252,8 @@ function getAllProducts() {
     const row = data[r];
     products.push({
       id: String(row[0]), name: row[1], price: Number(row[2]), weight: row[3], unit: row[3],
-      stock: Number(row[4]) || 0, tag: row[5] || "", emoji: row[6] || "🍪", desc: row[7] || "", image: "",
+      stock: Number(row[4]) || 0, tag: row[5] || "", emoji: row[6] || "🍪", desc: row[7] || "",
+      discountPercent: Number(row[8]) || 0, image: "",
     });
   }
   return products;
@@ -261,20 +262,20 @@ function getAllProducts() {
 function addProduct(p) {
   const sheet = getProductsSheet();
   const id = "p" + Date.now();
-  sheet.appendRow([id, p.name, Number(p.price) || 0, p.weight || "", Number(p.stock) || 0, p.tag || "", p.emoji || "🍪", p.desc || "", new Date()]);
+  sheet.appendRow([id, p.name, Number(p.price) || 0, p.weight || "", Number(p.stock) || 0, p.tag || "", p.emoji || "🍪", p.desc || "", Number(p.discountPercent) || 0, new Date()]);
   return { ok: true, id };
 }
 
 function updateProduct(id, patch) {
   const sheet = getProductsSheet();
   const data = sheet.getDataRange().getValues();
-  const colIndex = { name: 2, price: 3, weight: 4, stock: 5, tag: 6, emoji: 7, desc: 8 };
+  const colIndex = { name: 2, price: 3, weight: 4, stock: 5, tag: 6, emoji: 7, desc: 8, discountPercent: 9 };
   for (let r = 1; r < data.length; r++) {
     if (String(data[r][0]) === String(id)) {
       Object.keys(patch).forEach(key => {
         if (colIndex[key]) sheet.getRange(r + 1, colIndex[key]).setValue(patch[key]);
       });
-      sheet.getRange(r + 1, 9).setValue(new Date()); // UpdatedAt
+      sheet.getRange(r + 1, 10).setValue(new Date()); // UpdatedAt
       return { ok: true };
     }
   }
