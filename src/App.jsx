@@ -561,7 +561,7 @@ function statusColor(status) {
 }
 
 function OrdersPage({ orders, user, setPage }) {
-  const mine = orders.filter((o) => o.userId === user?.id);
+  const mine = orders.filter((o) => (o.userEmail || "").toLowerCase() === (user?.email || "").toLowerCase());
   return (
     <div style={{ maxWidth: 640, margin: "0 auto", padding: "24px 18px 60px" }}>
       <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 24, color: COLORS.cocoa, marginBottom: 16 }}>My Orders</h2>
@@ -578,7 +578,11 @@ function OrdersPage({ orders, user, setPage }) {
           </div>
           <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 12.5, color: "#8A6C5F" }}>{new Date(o.date).toLocaleString()}</div>
           <div style={{ marginTop: 8, fontFamily: "Nunito, sans-serif", fontSize: 13 }}>
-            {o.items.map((i) => <div key={i.id} style={{ color: "#6B4A3E" }}>{i.name} × {i.qty}</div>)}
+            {o.itemsText ? (
+              <div style={{ color: "#6B4A3E" }}>{o.itemsText}</div>
+            ) : (
+              (o.items || []).map((i) => <div key={i.id} style={{ color: "#6B4A3E" }}>{i.name} × {i.qty}</div>)
+            )}
           </div>
           <div style={{ marginTop: 8, fontWeight: 800, color: COLORS.magenta, fontFamily: "Nunito, sans-serif" }}>₹{o.total}</div>
         </div>
@@ -715,7 +719,11 @@ function AdminOrdersPage({ orders, updateStatus }) {
         )}
       </div>
       <div style={{ marginTop: 10, fontFamily: "Nunito, sans-serif", fontSize: 13, color: "#6B4A3E" }}>
-        {o.items.map((i) => <div key={i.id}>{i.name} × {i.qty} — ₹{i.price * i.qty}</div>)}
+        {o.itemsText ? (
+          <div>{o.itemsText}</div>
+        ) : (
+          (o.items || []).map((i) => <div key={i.id}>{i.name} × {i.qty} — ₹{i.price * i.qty}</div>)
+        )}
       </div>
       <div style={{ marginTop: 6, fontWeight: 800, color: COLORS.magenta, fontFamily: "Nunito, sans-serif" }}>Total ₹{o.total}</div>
     </div>
@@ -792,14 +800,12 @@ export default function LittleTreatsApp() {
         setProducts(result.products.map((p) => ({ ...p, image: "" })));
       }
     })();
-    // Also load existing orders so Admin sees orders placed in past sessions.
+    // Also load existing orders so Admin and customers see orders placed
+    // across past sessions/devices, not just this browser tab.
     (async () => {
       const result = await callSheet({ action: "getOrders" });
       if (result.ok && Array.isArray(result.orders)) {
-        setOrders(result.orders.map((o) => ({
-          ...o,
-          items: (o.itemsText || "").split(", ").filter(Boolean).map((t, i) => ({ id: "row" + i, name: t, qty: 1, price: 0 })),
-        })));
+        setOrders(result.orders);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
