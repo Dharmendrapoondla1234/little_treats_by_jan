@@ -791,18 +791,16 @@ export default function LittleTreatsApp() {
     setUsers((arr) => arr.map((u) => (u.email === email ? { ...u, password: newPassword } : u)));
   };
 
-  // Writes the order row to Google Sheets via the deployed Apps Script Web App
-  // (see google-apps-script-backend.gs). Falls back silently to local-only
-  // storage if no URL has been configured yet in Admin > Products.
+  // Writes the order row to Google Sheets via the deployed Apps Script Web
+  // App (see google-apps-script-backend.gs). Uses GET with the payload in a
+  // query param — Apps Script Web Apps always redirect internally, and
+  // browsers silently downgrade POST-through-redirect to GET, so doPost
+  // never actually runs. GET survives the redirect intact.
   const syncOrderToSheet = async (order) => {
     if (!sheetUrl) return;
     try {
-      await fetch(sheetUrl, {
-        method: "POST",
-        mode: "no-cors",
-        headers: { "Content-Type": "text/plain" },
-        body: JSON.stringify({ action: "newOrder", order }),
-      });
+      const payload = encodeURIComponent(JSON.stringify({ action: "newOrder", order }));
+      await fetch(`${sheetUrl}?data=${payload}`, { method: "GET", mode: "no-cors" });
     } catch (e) {
       // network blocked in this preview environment — order is still saved locally
       console.warn("Sheet sync skipped:", e);
@@ -851,12 +849,8 @@ export default function LittleTreatsApp() {
   const syncStatusToSheet = async (orderId, status, orderRef) => {
     if (!sheetUrl) return;
     try {
-      await fetch(sheetUrl, {
-        method: "POST",
-        mode: "no-cors",
-        headers: { "Content-Type": "text/plain" },
-        body: JSON.stringify({ action: "updateStatus", orderId, status, userEmail: orderRef?.userEmail, order: orderRef }),
-      });
+      const payload = encodeURIComponent(JSON.stringify({ action: "updateStatus", orderId, status, order: orderRef }));
+      await fetch(`${sheetUrl}?data=${payload}`, { method: "GET", mode: "no-cors" });
     } catch (e) {
       console.warn("Status sync skipped:", e);
     }

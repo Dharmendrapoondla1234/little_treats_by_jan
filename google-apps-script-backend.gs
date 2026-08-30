@@ -13,6 +13,39 @@
 const SHEET_NAME = "Orders";
 const SPREADSHEET_ID = "1if8S1v37fJwEOnMC2feRD5Dwj_uPJWfX-J7uF6liC-g";
 
+// GET is used instead of POST from the browser because Google Apps Script
+// Web Apps always issue an internal redirect, and browsers silently
+// downgrade POST-through-redirect to GET — which means doPost never runs
+// no matter how the deployment is configured. GET survives the redirect
+// intact, so doGet is the reliable path for this integration.
+function doGet(e) {
+  try {
+    const raw = e.parameter.data;
+    if (!raw) {
+      return ContentService
+        .createTextOutput(JSON.stringify({ ok: false, error: "No data parameter" }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    const body = JSON.parse(raw);
+
+    if (body.action === "newOrder") {
+      saveOrderToSheet(body.order);
+      sendOrderReceivedEmail(body.order);
+    } else if (body.action === "updateStatus") {
+      updateStatusInSheet(body.orderId, body.status);
+      sendStatusEmail(body.order, body.status);
+    }
+
+    return ContentService
+      .createTextOutput(JSON.stringify({ ok: true }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ ok: false, error: String(err) }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
