@@ -452,36 +452,33 @@ function ConfirmationPage({ lastOrder, setPage }) {
 
 /* ---------------- Auth ---------------- */
 
-function LoginPage({ setPage, login, users, resetPassword }) {
+function LoginPage({ setPage, loginUser, registerUser, resetPassword, authBusy }) {
   const [mode, setMode] = useState("login"); // login | register | forgot
   const [form, setForm] = useState({ name: "", email: "", password: "" });
   const [resetForm, setResetForm] = useState({ email: "", newPassword: "", confirm: "" });
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
-  const submit = () => {
+  const submit = async () => {
     setError("");
     if (mode === "login") {
-      const found = users.find((u) => u.email === form.email && u.password === form.password);
-      if (!found) return setError("Invalid email or password.");
-      login(found);
-      setPage(found.role === "admin" ? "admin" : "home");
+      const result = await loginUser(form.email, form.password);
+      if (!result.ok) return setError(result.error);
+      setPage(result.user.role === "admin" ? "admin" : "home");
     } else {
       if (!form.name || !form.email || !form.password) return setError("Please fill in all fields.");
-      if (users.some((u) => u.email === form.email)) return setError("An account with this email already exists.");
-      const newUser = { id: "u" + Date.now(), name: form.name, email: form.email, password: form.password, role: "user" };
-      login(newUser, true);
+      const result = await registerUser(form.name, form.email, form.password);
+      if (!result.ok) return setError(result.error);
       setPage("home");
     }
   };
 
-  const submitReset = () => {
+  const submitReset = async () => {
     setError(""); setNotice("");
-    const found = users.find((u) => u.email === resetForm.email);
-    if (!found) return setError("No account found with that email.");
     if (!resetForm.newPassword || resetForm.newPassword.length < 4) return setError("New password must be at least 4 characters.");
     if (resetForm.newPassword !== resetForm.confirm) return setError("Passwords don't match.");
-    resetPassword(resetForm.email, resetForm.newPassword);
+    const result = await resetPassword(resetForm.email, resetForm.newPassword);
+    if (!result.ok) return setError(result.error || "Couldn't reset password.");
     setNotice("Password updated! You can log in with your new password now.");
     setResetForm({ email: "", newPassword: "", confirm: "" });
     setTimeout(() => { setMode("login"); setNotice(""); }, 1800);
@@ -507,7 +504,9 @@ function LoginPage({ setPage, login, users, resetPassword }) {
             <Field label="Confirm New Password" type="password" value={resetForm.confirm} onChange={(e) => setResetForm({ ...resetForm, confirm: e.target.value })} placeholder="Re-enter new password" />
             {error && <div style={{ color: "#C6296B", fontFamily: "Nunito, sans-serif", fontSize: 12.5, fontWeight: 700, marginBottom: 10 }}>{error}</div>}
             {notice && <div style={{ color: "#2E8F55", fontFamily: "Nunito, sans-serif", fontSize: 12.5, fontWeight: 700, marginBottom: 10 }}>{notice}</div>}
-            <Button full variant="primary" onClick={submitReset}><Lock size={15} /> Update Password</Button>
+            <Button full variant="primary" onClick={submitReset} disabled={authBusy}>
+              <Lock size={15} /> {authBusy ? "Updating..." : "Update Password"}
+            </Button>
             <div style={{ marginTop: 10, fontFamily: "Nunito, sans-serif", fontSize: 11, color: "#B08A7A", textAlign: "center" }}>
               This demo resets the password directly. A production version would email a one-time code first — see note below.
             </div>
@@ -518,8 +517,8 @@ function LoginPage({ setPage, login, users, resetPassword }) {
             <Field label="Email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="you@example.com" />
             <Field label="Password" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="••••••••" />
             {error && <div style={{ color: "#C6296B", fontFamily: "Nunito, sans-serif", fontSize: 12.5, fontWeight: 700, marginBottom: 10 }}>{error}</div>}
-            <Button full variant="primary" onClick={submit}>
-              <Lock size={15} /> {mode === "login" ? "Log In" : "Sign Up"}
+            <Button full variant="primary" onClick={submit} disabled={authBusy}>
+              <Lock size={15} /> {authBusy ? "Please wait..." : mode === "login" ? "Log In" : "Sign Up"}
             </Button>
             {mode === "login" && (
               <div style={{ textAlign: "center", marginTop: 10 }}>
@@ -756,12 +755,53 @@ export default function LittleTreatsApp() {
   const [lastOrder, setLastOrder] = useState(null);
   const [sheetUrl, setSheetUrl] = useState("https://script.google.com/macros/s/AKfycbyJ8aKilYXt-gNzcqy8sueXWuFJ-lFH5Udnm0jykuHU9yMwmnAp9lnG7wza2OUK302x/exec");
   const [toasts, setToasts] = useState([]);
+  const [authBusy, setAuthBusy] = useState(false);
 
   const pushToast = (msg) => {
     const id = Date.now() + Math.random();
     setToasts((t) => [...t, { id, msg }]);
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3200);
   };
+
+  // Generic call to the Apps Script backend. Uses GET with the payload in a
+  // query param — Apps Script Web Apps always redirect internally, and
+  // browsers silently downgrade POST-through-redirect to GET. We read the
+  // JSON response back (no no-cors) since GET requests are eligible for
+  // CORS-readable responses from script.googleusercontent.com.
+  const callSheet = async (payload) => {
+    if (!sheetUrl) return { ok: false, error: "No Sheets URL configured." };
+    try {
+      const url = `${sheetUrl}?data=${encodeURIComponent(JSON.stringify(payload))}`;
+      const res = await fetch(url);
+      return await res.json();
+    } catch (e) {
+      console.warn("Sheet call failed:", e);
+      return { ok: false, error: "Could not reach the Sheets backend." };
+    }
+  };
+
+  // Load the real product list from the Sheet on startup (if connected).
+  // Falls back to the local seed list if no Sheets URL is set or it fails.
+  React.useEffect(() => {
+    if (!sheetUrl) return;
+    (async () => {
+      const result = await callSheet({ action: "getProducts" });
+      if (result.ok && Array.isArray(result.products) && result.products.length) {
+        setProducts(result.products.map((p) => ({ ...p, image: "" })));
+      }
+    })();
+    // Also load existing orders so Admin sees orders placed in past sessions.
+    (async () => {
+      const result = await callSheet({ action: "getOrders" });
+      if (result.ok && Array.isArray(result.orders)) {
+        setOrders(result.orders.map((o) => ({
+          ...o,
+          items: (o.itemsText || "").split(", ").filter(Boolean).map((t, i) => ({ id: "row" + i, name: t, qty: 1, price: 0 })),
+        })));
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const addToCart = (id) => {
     setCart((c) => {
@@ -776,19 +816,68 @@ export default function LittleTreatsApp() {
   };
   const removeFromCart = (id) => setCart((c) => c.filter((i) => i.id !== id));
 
-  const login = (u, isNew) => {
-    if (isNew) setUsers((arr) => [...arr, u]);
-    setUser(u);
-    pushToast(`Welcome, ${u.name.split(" ")[0]}!`);
+  // Auth: uses the Sheet as the real source of truth when connected
+  // (passwords are salted + SHA-256 hashed server-side, never stored in
+  // plain text), falling back to local in-memory demo accounts otherwise.
+  const loginUser = async (email, password) => {
+    setAuthBusy(true);
+    try {
+      if (sheetUrl) {
+        const result = await callSheet({ action: "loginUser", email, password });
+        if (result.ok) { setUser(result.user); pushToast(`Welcome, ${result.user.name.split(" ")[0]}!`); return { ok: true, user: result.user }; }
+        return { ok: false, error: result.error || "Login failed." };
+      }
+      const found = users.find((u) => u.email === email && u.password === password);
+      if (!found) return { ok: false, error: "Invalid email or password." };
+      setUser(found); pushToast(`Welcome, ${found.name.split(" ")[0]}!`);
+      return { ok: true, user: found };
+    } finally { setAuthBusy(false); }
   };
+
+  const registerUser = async (name, email, password) => {
+    setAuthBusy(true);
+    try {
+      if (sheetUrl) {
+        const result = await callSheet({ action: "registerUser", user: { name, email, password } });
+        if (result.ok) { setUser(result.user); pushToast(`Welcome, ${result.user.name.split(" ")[0]}!`); return { ok: true }; }
+        return { ok: false, error: result.error || "Registration failed." };
+      }
+      if (users.some((u) => u.email === email)) return { ok: false, error: "An account with this email already exists." };
+      const newUser = { id: "u" + Date.now(), name, email, password, role: "user" };
+      setUsers((arr) => [...arr, newUser]); setUser(newUser); pushToast(`Welcome, ${name.split(" ")[0]}!`);
+      return { ok: true };
+    } finally { setAuthBusy(false); }
+  };
+
   const logout = () => { setUser(null); setPage("home"); };
 
-  const addProduct = (p) => { setProducts((arr) => [...arr, p]); pushToast(`${p.name} added to storefront`); };
-  const deleteProduct = (id) => setProducts((arr) => arr.filter((p) => p.id !== id));
-  const updateProduct = (id, patch) => setProducts((arr) => arr.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+  const addProduct = async (p) => {
+    if (sheetUrl) {
+      const result = await callSheet({ action: "addProduct", product: p });
+      if (result.ok) { setProducts((arr) => [...arr, { ...p, id: result.id }]); pushToast(`${p.name} added to storefront`); }
+      else pushToast(result.error || "Couldn't add product.");
+      return;
+    }
+    setProducts((arr) => [...arr, p]); pushToast(`${p.name} added to storefront`);
+  };
 
-  const resetPassword = (email, newPassword) => {
+  const deleteProduct = async (id) => {
+    setProducts((arr) => arr.filter((p) => p.id !== id));
+    if (sheetUrl) callSheet({ action: "deleteProduct", id });
+  };
+
+  const updateProduct = async (id, patch) => {
+    setProducts((arr) => arr.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+    if (sheetUrl) callSheet({ action: "updateProduct", id, patch });
+  };
+
+  const resetPassword = async (email, newPassword) => {
+    if (sheetUrl) {
+      const result = await callSheet({ action: "resetPassword", email, newPassword });
+      return result;
+    }
     setUsers((arr) => arr.map((u) => (u.email === email ? { ...u, password: newPassword } : u)));
+    return { ok: true };
   };
 
   // Writes the order row to Google Sheets via the deployed Apps Script Web
@@ -835,7 +924,10 @@ export default function LittleTreatsApp() {
     setOrders((o) => [...o, order]);
     setProducts((arr) => arr.map((p) => {
       const bought = items.find((i) => i.id === p.id);
-      return bought ? { ...p, stock: Math.max(0, (p.stock ?? 0) - bought.qty) } : p;
+      if (!bought) return p;
+      const newStock = Math.max(0, (p.stock ?? 0) - bought.qty);
+      if (sheetUrl) callSheet({ action: "updateProduct", id: p.id, patch: { stock: newStock } });
+      return { ...p, stock: newStock };
     }));
     setLastOrder(order);
     setCart([]);
@@ -878,10 +970,10 @@ export default function LittleTreatsApp() {
     switch (page) {
       case "products": content = <ProductsPage products={products} addToCart={addToCart} toast={pushToast} />; break;
       case "cart": content = <CartPage cart={cart} products={products} updateQty={updateQty} removeFromCart={removeFromCart} setPage={setPage} user={user} />; break;
-      case "checkout": content = user ? <CheckoutPage cart={cart} products={products} placeOrder={placeOrder} setPage={setPage} /> : <LoginPage setPage={setPage} login={login} users={users} resetPassword={resetPassword} />; break;
+      case "checkout": content = user ? <CheckoutPage cart={cart} products={products} placeOrder={placeOrder} setPage={setPage} /> : <LoginPage setPage={setPage} loginUser={loginUser} registerUser={registerUser} resetPassword={resetPassword} authBusy={authBusy} />; break;
       case "confirmation": content = <ConfirmationPage lastOrder={lastOrder} setPage={setPage} />; break;
-      case "orders": content = user ? <OrdersPage orders={orders} user={user} setPage={setPage} /> : <LoginPage setPage={setPage} login={login} users={users} resetPassword={resetPassword} />; break;
-      case "login": content = <LoginPage setPage={setPage} login={login} users={users} resetPassword={resetPassword} />; break;
+      case "orders": content = user ? <OrdersPage orders={orders} user={user} setPage={setPage} /> : <LoginPage setPage={setPage} loginUser={loginUser} registerUser={registerUser} resetPassword={resetPassword} authBusy={authBusy} />; break;
+      case "login": content = <LoginPage setPage={setPage} loginUser={loginUser} registerUser={registerUser} resetPassword={resetPassword} authBusy={authBusy} />; break;
       default: content = <HomePage setPage={setPage} />;
     }
   }

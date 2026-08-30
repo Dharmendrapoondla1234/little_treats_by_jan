@@ -72,3 +72,31 @@ Happy to build this out fully on request — it's a small addition once you're r
 - The demo runs with in-memory state so you can test the full flow immediately, with or without the Sheets URL connected.
 - Once the Sheets URL is set, order data becomes durable in your Google Sheet, and customers get real email notifications — the two features the brief specifically asked for.
 - To go further (e.g. reading products from the Sheet too, or SMS notifications), the same `.gs` file is the place to extend — happy to build that out on request.
+
+## Important: this is now a full backend, not just an orders logger
+
+The Apps Script file now maintains **three tabs**, all auto-created on first use:
+
+| Tab | Columns | Purpose |
+|---|---|---|
+| **Users** | Email, Name, PasswordHash, Salt, Role, CreatedAt | Real accounts — passwords are never stored in plain text (salted + SHA-256 hashed server-side) |
+| **Products** | ID, Name, Price, Weight, Stock, Tag, Emoji, Description, UpdatedAt | The real product catalog — Admin edits write here, and the website loads its product list FROM here on every visit |
+| **Orders** | (unchanged) | As before |
+
+**What this means in practice:**
+- Registering an account, logging in, and "Forgot password" all now go through the Sheet — accounts work from any device/browser, not just the one that created them.
+- The admin demo account (`admin@littletreats.com` / `admin123`) is auto-seeded into the Users tab the first time the script runs.
+- Adding, editing, or deleting a product in Admin writes directly to the Products tab. Stock also decreases there automatically as real orders come in.
+- If `Admin → Products → Google Sheets Sync` has no URL set, the app quietly falls back to local in-memory demo data (as before) — so it still works instantly out of the box before you connect a Sheet.
+
+### One current limitation: product photos
+
+Photo uploads in Admin are **not** synced to the Sheet — they only last for the current browser session. This is intentional: base64 image data is too large to pass through a URL query string reliably (which is how every other read/write in this app talks to Apps Script, since POST requests get silently downgraded to GET by browsers on Apps Script's internal redirect). To add real persisted photos later, the recommended path is:
+1. Have Apps Script save the incoming image to Google Drive (`DriveApp.createFile`) and make it public.
+2. Store just the resulting Drive URL (a short string) in a new "ImageURL" column — that's small enough to pass through the same GET mechanism.
+
+Happy to build this out on request.
+
+### Redeploy after this update
+
+Same as before: paste the new `.gs` file over your script → Save → **Deploy → Manage deployments → pencil icon → Version: New version → Deploy**. Same `/exec` URL, new code.
