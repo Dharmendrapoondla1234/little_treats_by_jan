@@ -127,17 +127,13 @@ function effectivePrice(product) {
 function normalizeImageUrl(image) {
   const raw = String(image || "").trim();
   if (!raw) return "";
-  if (raw.startsWith("https://drive.google.com/uc?id=")) {
-    return raw.replace("https://drive.google.com/uc?id=", "https://drive.google.com/uc?export=view&id=");
+
+  const fileIdMatch = raw.match(/(?:id=|\/d\/|file\/d\/)([A-Za-z0-9_-]{10,})/);
+  if (fileIdMatch) {
+    const fileId = fileIdMatch[1];
+    return `https://drive.google.com/thumbnail?id=${fileId}`;
   }
-  if (raw.includes("drive.google.com/file/d/")) {
-    const match = raw.match(/\/d\/([^/]+)/);
-    if (match) return `https://drive.google.com/uc?export=view&id=${match[1]}`;
-  }
-  if (raw.includes("drive.google.com/open?id=")) {
-    const match = raw.match(/[?&]id=([^&]+)/);
-    if (match) return `https://drive.google.com/uc?export=view&id=${match[1]}`;
-  }
+
   return raw;
 }
 
