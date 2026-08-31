@@ -1134,6 +1134,7 @@ export default function LittleTreatsApp() {
     try {
       const res = await fetch(sheetUrl, {
         method: "POST",
+        mode: "cors",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify(payload),
       });
@@ -1145,8 +1146,13 @@ export default function LittleTreatsApp() {
       }
     } catch (e) {
       try {
-        const fallback = await fetch(`${sheetUrl}?data=${encodeURIComponent(JSON.stringify(payload))}`);
-        return await fallback.json();
+        const fallback = await fetch(`${sheetUrl}?data=${encodeURIComponent(JSON.stringify(payload))}`, { mode: "cors" });
+        const fallbackText = await fallback.text();
+        try {
+          return JSON.parse(fallbackText);
+        } catch {
+          return { ok: false, error: fallbackText || "Could not reach the Sheets backend." };
+        }
       } catch (fallbackError) {
         console.warn("Sheet call failed:", fallbackError);
         return { ok: false, error: "Could not reach the Sheets backend." };

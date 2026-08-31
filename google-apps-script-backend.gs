@@ -383,13 +383,35 @@ function migrateProductsSheetIfNeeded(sheet) {
 function getAllProducts() {
   const sheet = getProductsSheet();
   const data = sheet.getDataRange().getValues();
+  if (!data.length) return [];
+  const headers = data[0];
+  const idIdx = headers.indexOf("ID");
+  const nameIdx = headers.indexOf("Name");
+  const priceIdx = headers.indexOf("Price");
+  const weightIdx = headers.indexOf("Weight");
+  const stockIdx = headers.indexOf("Stock");
+  const tagIdx = headers.indexOf("Tag");
+  const emojiIdx = headers.indexOf("Emoji");
+  const descIdx = headers.indexOf("Description");
+  const discountIdx = headers.indexOf("Discount");
+  const imageIdx = headers.indexOf("ImageURL");
+
   const products = [];
   for (let r = 1; r < data.length; r++) {
     const row = data[r];
+    if (!row || !row[idIdx]) continue;
     products.push({
-      id: String(row[0]), name: row[1], price: Number(row[2]), weight: row[3], unit: row[3],
-      stock: Number(row[4]) || 0, tag: row[5] || "", emoji: row[6] || "🍪", desc: row[7] || "",
-      discountPercent: Number(row[8]) || 0, image: row[10] || row[11] || "",
+      id: String(row[idIdx] || ""),
+      name: row[nameIdx] || "",
+      price: Number(row[priceIdx]) || 0,
+      weight: row[weightIdx] || "",
+      unit: row[weightIdx] || "",
+      stock: Number(row[stockIdx]) || 0,
+      tag: row[tagIdx] || "",
+      emoji: row[emojiIdx] || "🍪",
+      desc: row[descIdx] || "",
+      discountPercent: Number(row[discountIdx]) || 0,
+      image: imageIdx >= 0 ? (row[imageIdx] || "") : "",
     });
   }
   return products;
@@ -398,20 +420,53 @@ function getAllProducts() {
 function addProduct(p) {
   const sheet = getProductsSheet();
   const id = "p" + Date.now();
-  sheet.appendRow([id, p.name, Number(p.price) || 0, p.weight || "", Number(p.stock) || 0, p.tag || "", p.emoji || "🍪", p.desc || "", Number(p.discountPercent) || 0, new Date(), p.image || ""]);
+  const row = [
+    id,
+    p.name || "",
+    Number(p.price) || 0,
+    p.weight || "",
+    Number(p.stock) || 0,
+    p.tag || "",
+    p.emoji || "🍪",
+    p.desc || "",
+    Number(p.discountPercent) || 0,
+    new Date(),
+    p.image || "",
+  ];
+  sheet.appendRow(row);
   return { ok: true, id };
 }
 
 function updateProduct(id, patch) {
   const sheet = getProductsSheet();
   const data = sheet.getDataRange().getValues();
-  const colIndex = { name: 2, price: 3, weight: 4, stock: 5, tag: 6, emoji: 7, desc: 8, discountPercent: 9, image: 11 };
+  if (!data.length) return { ok: false, error: "Product not found." };
+
+  const headers = data[0];
+  const idIdx = headers.indexOf("ID");
+  const updatedAtIdx = headers.indexOf("UpdatedAt");
+  const imageIdx = headers.indexOf("ImageURL");
+  const colIndex = {
+    name: headers.indexOf("Name"),
+    price: headers.indexOf("Price"),
+    weight: headers.indexOf("Weight"),
+    stock: headers.indexOf("Stock"),
+    tag: headers.indexOf("Tag"),
+    emoji: headers.indexOf("Emoji"),
+    desc: headers.indexOf("Description"),
+    discountPercent: headers.indexOf("Discount"),
+    image: imageIdx,
+  };
+
   for (let r = 1; r < data.length; r++) {
-    if (String(data[r][0]) === String(id)) {
+    if (String(data[r][idIdx]) === String(id)) {
       Object.keys(patch).forEach(key => {
-        if (colIndex[key]) sheet.getRange(r + 1, colIndex[key]).setValue(patch[key]);
+        const idx = colIndex[key];
+        if (idx >= 0 && idx < data[r].length) {
+          sheet.getRange(r + 1, idx + 1).setValue(patch[key]);
+        }
       });
-      sheet.getRange(r + 1, 10).setValue(new Date()); // UpdatedAt
+      if (updatedAtIdx >= 0) sheet.getRange(r + 1, updatedAtIdx + 1).setValue(new Date());
       return { ok: true };
     }
   }
