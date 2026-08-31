@@ -314,7 +314,7 @@ function OfferStrip({ offers }) {
           borderRadius: 18, border: `2px solid ${COLORS.line}`, padding: 14,
           boxShadow: "0 12px 26px rgba(198,41,107,.08)", overflow: "hidden"
         }}>
-          {offer.image ? <img src={offer.image} alt={offer.title} style={{ width: 78, height: 78, objectFit: "cover", borderRadius: 14, border: `2px solid rgba(74,42,34,.08)` }} /> : <div style={{ width: 78, height: 78, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(255,255,255,.45)", fontSize: 28 }}>🎉</div>}
+          {offer.image ? <img src={offer.image} alt={offer.title} style={{ width: 78, height: 78, objectFit: "contain", borderRadius: 14, border: `2px solid rgba(74,42,34,.08)`, background: "#fff" }} /> : <div style={{ width: 78, height: 78, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(255,255,255,.45)", fontSize: 28 }}>🎉</div>}
           <div style={{ flex: 1 }}>
             <div style={{ fontFamily: "Nunito, sans-serif", fontWeight: 900, fontSize: 13, color: COLORS.cocoa, textTransform: "uppercase", letterSpacing: 0.7 }}>{offer.title}</div>
             <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 12.5, color: "#6B4A3E", marginTop: 4 }}>{offer.description}</div>
@@ -401,10 +401,10 @@ function ProductsPage({ products, addToCart, toast }) {
             <div key={p.id} style={{ background: "#fff", borderRadius: 20, border: `2px solid ${COLORS.line}`, overflow: "hidden", display: "flex", flexDirection: "column", opacity: outOfStock ? 0.75 : 1 }}>
               <div style={{ background: COLORS.blush, textAlign: "center", padding: 0, position: "relative", height: 130, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
                 {p.image && String(p.image).trim().length > 0 ? (
-                  <img 
-                    src={normalizeImageUrl(p.image)} 
-                    alt={p.name} 
-                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                  <img
+                    src={normalizeImageUrl(p.image)}
+                    alt={p.name}
+                    style={{ width: "100%", height: "100%", objectFit: "contain" }}
                     onError={(e) => {
                       console.warn(`⚠️ Image failed to load for ${p.name}:`, p.image);
                       e.currentTarget.style.display = "none";
@@ -627,7 +627,7 @@ function CheckoutPage({ cart, products, placeOrder, setPage, user, pushToast, ca
         <label style={{ display: "block", marginBottom: 10 }}>
           <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, color: COLORS.cocoa, marginBottom: 6 }}>Payment Screenshot * (required)</span>
           <input type="file" accept="image/*" onChange={handleScreenshot} style={{ fontFamily: "Nunito, sans-serif", fontSize: 13 }} />
-          {screenshotPreview && <img src={screenshotPreview} alt="payment screenshot preview" style={{ width: 90, height: 90, objectFit: "cover", borderRadius: 10, marginTop: 8, border: `2px solid ${COLORS.line}` }} />}
+          {screenshotPreview && <img src={screenshotPreview} alt="payment screenshot preview" style={{ width: 90, height: 90, objectFit: "contain", borderRadius: 10, marginTop: 8, border: `2px solid ${COLORS.line}`, background: COLORS.blush }} />}
         </label>
 
         <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 11, color: "#B08A7A" }}>
@@ -857,19 +857,19 @@ function AdminProductsPage({ products, addProduct, deleteProduct, updateProduct,
 
   const submit = () => {
     if (!form.name || !form.price) return;
-    
+
     // Warn if image looks incomplete
     if (form.image && form.image.startsWith("data:")) {
       setImgError("Please wait for the image upload to finish before adding the product.");
       return;
     }
-    
+
     // Require image upload if they started one
     if (uploading) {
       setImgError("Please wait for the image upload to finish.");
       return;
     }
-    
+
     addProduct({
       ...form, id: "p" + Date.now(),
       price: Number(form.price),
@@ -887,7 +887,7 @@ function AdminProductsPage({ products, addProduct, deleteProduct, updateProduct,
       <p style={{ fontFamily: "Nunito, sans-serif", fontSize: 13, color: "#8A6C5F", marginBottom: 18 }}>Add new treats, set stock levels, discounts, and upload product photos.</p>
 
       {sheetUrl && (
-        <button 
+        <button
           onClick={() => {
             (async () => {
               const result = await callSheet({ action: "getProducts" });
@@ -929,7 +929,7 @@ function AdminProductsPage({ products, addProduct, deleteProduct, updateProduct,
           <input type="file" accept="image/*" onChange={handleImage} disabled={uploading} style={{ fontFamily: "Nunito, sans-serif", fontSize: 13 }} />
           {uploading && <div style={{ color: COLORS.mint, fontSize: 12, fontWeight: 700, marginTop: 6 }}>Uploading photo...</div>}
           {imgError && <div style={{ color: "#C6296B", fontSize: 12, fontWeight: 700, marginTop: 6 }}>{imgError}</div>}
-          {form.image && <img src={form.image} alt="preview" style={{ width: 90, height: 90, objectFit: "cover", borderRadius: 12, marginTop: 8, border: `2px solid ${COLORS.line}` }} />}
+          {form.image && <img src={form.image} alt="preview" style={{ width: 90, height: 90, objectFit: "contain", borderRadius: 12, marginTop: 8, border: `2px solid ${COLORS.line}`, background: COLORS.blush }} />}
           {!sheetUrl && <div style={{ color: "#B08A7A", fontSize: 11, marginTop: 6 }}>Connect Google Sheets below to make photos persist permanently.</div>}
         </label>
 
@@ -942,10 +942,10 @@ function AdminProductsPage({ products, addProduct, deleteProduct, updateProduct,
             <button onClick={() => deleteProduct(p.id)} style={{ position: "absolute", top: 10, right: 10, background: "none", border: "none", color: "#C6296B", cursor: "pointer" }}><Trash2 size={15} /></button>
             <div style={{ width: "100%", height: 90, borderRadius: 10, marginBottom: 8, background: COLORS.blush, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
               {p.image && String(p.image).trim().length > 0 ? (
-                <img 
-                  src={normalizeImageUrl(p.image)} 
-                  alt={p.name} 
-                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                <img
+                  src={normalizeImageUrl(p.image)}
+                  alt={p.name}
+                  style={{ width: "100%", height: "100%", objectFit: "contain" }}
                   onError={(e) => {
                     console.warn(`⚠️ Image failed to load for ${p.name}: ${p.image}`);
                     e.currentTarget.style.display = "none";
@@ -1053,19 +1053,19 @@ function AdminOffersPage({ offers, addOffer, deleteOffer, updateOffer, callSheet
 
   const submit = () => {
     if (!form.title.trim()) return;
-    
+
     // Warn if image looks incomplete
     if (form.image && form.image.startsWith("data:")) {
       setImgError("Please wait for the image upload to finish before adding the offer.");
       return;
     }
-    
+
     // Require upload to finish if started
     if (uploading) {
       setImgError("Please wait for the image upload to finish.");
       return;
     }
-    
+
     addOffer({ ...form, title: form.title.trim(), description: form.description.trim() || "Limited-time offer" });
     setForm({ title: "", description: "", color: "#FBE3EA", image: "", active: true });
     setImgError("");
@@ -1088,7 +1088,7 @@ function AdminOffersPage({ offers, addOffer, deleteOffer, updateOffer, callSheet
           <input type="file" accept="image/*" onChange={handleImage} disabled={uploading} style={{ fontFamily: "Nunito, sans-serif", fontSize: 13 }} />
           {uploading && <div style={{ color: COLORS.mint, fontSize: 12, fontWeight: 700, marginTop: 6 }}>Uploading image...</div>}
           {imgError && <div style={{ color: "#C6296B", fontSize: 12, fontWeight: 700, marginTop: 6 }}>{imgError}</div>}
-          {form.image && <img src={form.image} alt="offer preview" style={{ width: 110, height: 110, objectFit: "cover", borderRadius: 14, marginTop: 10, border: `2px solid ${COLORS.line}` }} />}
+          {form.image && <img src={form.image} alt="offer preview" style={{ width: 110, height: 110, objectFit: "contain", borderRadius: 14, marginTop: 10, border: `2px solid ${COLORS.line}`, background: COLORS.blush }} />}
         </label>
 
         <label style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, fontFamily: "Nunito, sans-serif", fontWeight: 800, color: COLORS.cocoa }}>
@@ -1102,7 +1102,7 @@ function AdminOffersPage({ offers, addOffer, deleteOffer, updateOffer, callSheet
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
         {offers.map((offer) => (
           <div key={offer.id} style={{ background: offer.color || COLORS.blush, border: `2px solid ${COLORS.line}`, borderRadius: 18, padding: 14 }}>
-            {offer.image ? <img src={offer.image} alt={offer.title} style={{ width: "100%", height: 110, objectFit: "cover", borderRadius: 12, marginBottom: 10, border: `2px solid rgba(74,42,34,.08)` }} /> : <div style={{ height: 110, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32, background: "rgba(255,255,255,.32)", borderRadius: 12, marginBottom: 10 }}>🎉</div>}
+            {offer.image ? <img src={offer.image} alt={offer.title} style={{ width: "100%", height: 110, objectFit: "contain", borderRadius: 12, marginBottom: 10, border: `2px solid rgba(74,42,34,.08)`, background: "#fff" }} /> : <div style={{ height: 110, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32, background: "rgba(255,255,255,.32)", borderRadius: 12, marginBottom: 10 }}>🎉</div>}
             <div style={{ fontFamily: "Nunito, sans-serif", fontWeight: 900, fontSize: 13, color: COLORS.cocoa, textTransform: "uppercase" }}>{offer.title}</div>
             <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 12.5, color: "#6B4A3E", marginTop: 4 }}>{offer.description}</div>
             <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -1126,7 +1126,7 @@ function AdminOrdersPage({ orders, updateStatus }) {
   const [endDate, setEndDate] = useState("");
 
   const postAcceptStatuses = ["Confirmed", "Preparing", "Out for Delivery", "Delivered"];
-  
+
   // Filter orders by date range
   const filteredOrders = orders.filter((o) => {
     const orderDate = new Date(o.date);
@@ -1208,23 +1208,23 @@ function AdminOrdersPage({ orders, updateStatus }) {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 12, alignItems: "flex-end" }}>
           <div>
             <label style={{ display: "block", fontFamily: "Nunito, sans-serif", fontSize: 12.5, fontWeight: 800, color: COLORS.cocoa, marginBottom: 6 }}>From</label>
-            <input 
-              type="date" 
-              value={startDate} 
+            <input
+              type="date"
+              value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
               style={{ width: "100%", padding: "8px 10px", borderRadius: 10, border: `2px solid ${COLORS.line}`, fontFamily: "Nunito, sans-serif", fontSize: 13 }}
             />
           </div>
           <div>
             <label style={{ display: "block", fontFamily: "Nunito, sans-serif", fontSize: 12.5, fontWeight: 800, color: COLORS.cocoa, marginBottom: 6 }}>To</label>
-            <input 
-              type="date" 
-              value={endDate} 
+            <input
+              type="date"
+              value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
               style={{ width: "100%", padding: "8px 10px", borderRadius: 10, border: `2px solid ${COLORS.line}`, fontFamily: "Nunito, sans-serif", fontSize: 13 }}
             />
           </div>
-          <button 
+          <button
             onClick={() => { setStartDate(""); setEndDate(""); }}
             style={{ padding: "8px 14px", borderRadius: 10, border: `2px solid ${COLORS.line}`, background: "#fff", fontFamily: "Nunito, sans-serif", fontWeight: 800, fontSize: 12.5, color: COLORS.cocoa, cursor: "pointer" }}
           >
