@@ -386,9 +386,14 @@ function ProductsPage({ products, addToCart, toast }) {
           const finalPrice = effectivePrice(p);
           return (
             <div key={p.id} style={{ background: "#fff", borderRadius: 20, border: `2px solid ${COLORS.line}`, overflow: "hidden", display: "flex", flexDirection: "column", opacity: outOfStock ? 0.75 : 1 }}>
-              <div style={{ background: COLORS.blush, textAlign: "center", padding: p.image ? 0 : "22px 0", position: "relative" }}>
+              <div style={{ background: COLORS.blush, textAlign: "center", padding: p.image ? 0 : "22px 0", position: "relative", height: 130, display: "flex", alignItems: "center", justifyContent: "center" }}>
                 {p.image ? (
-                  <img src={p.image} alt={p.name} style={{ width: "100%", height: 130, objectFit: "cover", display: "block" }} />
+                  <img 
+                    src={p.image} 
+                    alt={p.name} 
+                    style={{ width: "100%", height: 130, objectFit: "cover", display: "block" }}
+                    onError={() => console.warn(`Image failed to load: ${p.image}`)}
+                  />
                 ) : (
                   <span style={{ fontSize: 54 }}>{p.emoji}</span>
                 )}
@@ -808,21 +813,25 @@ function AdminProductsPage({ products, addProduct, deleteProduct, updateProduct,
     if (!file) return;
     setImgError("");
 
-    // Local preview immediately, so the admin sees something right away.
-    const previewReader = new FileReader();
-    previewReader.onload = () => setForm((f) => ({ ...f, image: previewReader.result }));
-    previewReader.readAsDataURL(file);
+    if (!sheetUrl) {
+      // demo mode — preview only, not persisted
+      const previewReader = new FileReader();
+      previewReader.onload = () => setForm((f) => ({ ...f, image: previewReader.result }));
+      previewReader.readAsDataURL(file);
+      return;
+    }
 
-    if (!sheetUrl) return; // demo mode — preview only, not persisted (matches other demo-mode limits)
-
+    // Always upload if sheetUrl is set, then show preview
     setUploading(true);
     try {
       const compressed = await compressImageFile(file, 800, 0.7);
       const url = await uploadImageInChunks(compressed, callSheet);
+      if (!url || !url.startsWith("http")) throw new Error("Invalid image URL returned from server.");
       setForm((f) => ({ ...f, image: url }));
-      pushToast("Photo uploaded!");
+      pushToast("✓ Photo uploaded and ready!");
     } catch (err) {
       setImgError(err.message || "Couldn't upload the photo. Please try again.");
+      setForm((f) => ({ ...f, image: "" }));
     } finally {
       setUploading(false);
     }
@@ -830,6 +839,19 @@ function AdminProductsPage({ products, addProduct, deleteProduct, updateProduct,
 
   const submit = () => {
     if (!form.name || !form.price) return;
+    
+    // Warn if image looks incomplete
+    if (form.image && form.image.startsWith("data:")) {
+      setImgError("Please wait for the image upload to finish before adding the product.");
+      return;
+    }
+    
+    // Require image upload if they started one
+    if (uploading) {
+      setImgError("Please wait for the image upload to finish.");
+      return;
+    }
+    
     addProduct({
       ...form, id: "p" + Date.now(),
       price: Number(form.price),
@@ -838,6 +860,7 @@ function AdminProductsPage({ products, addProduct, deleteProduct, updateProduct,
       unit: form.weight,
     });
     setForm({ name: "", price: "", weight: "", stock: "", discountPercent: "", emoji: "🍪", desc: "", tag: "", image: "" });
+    setImgError("");
   };
 
   return (
@@ -951,19 +974,25 @@ function AdminOffersPage({ offers, addOffer, deleteOffer, updateOffer, callSheet
     if (!file) return;
     setImgError("");
 
-    const previewReader = new FileReader();
-    previewReader.onload = () => setForm((f) => ({ ...f, image: previewReader.result }));
-    previewReader.readAsDataURL(file);
+    if (!sheetUrl) {
+      // demo mode — preview only, not persisted
+      const previewReader = new FileReader();
+      previewReader.onload = () => setForm((f) => ({ ...f, image: previewReader.result }));
+      previewReader.readAsDataURL(file);
+      return;
+    }
 
-    if (!sheetUrl) return;
+    // Always upload if sheetUrl is set
     setUploading(true);
     try {
       const compressed = await compressImageFile(file, 900, 0.7);
       const url = await uploadImageInChunks(compressed, callSheet);
+      if (!url || !url.startsWith("http")) throw new Error("Invalid image URL returned from server.");
       setForm((f) => ({ ...f, image: url }));
-      pushToast("Offer image uploaded");
+      pushToast("✓ Offer image uploaded!");
     } catch (err) {
       setImgError(err.message || "Couldn't upload the offer image.");
+      setForm((f) => ({ ...f, image: "" }));
     } finally {
       setUploading(false);
     }
@@ -971,8 +1000,22 @@ function AdminOffersPage({ offers, addOffer, deleteOffer, updateOffer, callSheet
 
   const submit = () => {
     if (!form.title.trim()) return;
+    
+    // Warn if image looks incomplete
+    if (form.image && form.image.startsWith("data:")) {
+      setImgError("Please wait for the image upload to finish before adding the offer.");
+      return;
+    }
+    
+    // Require upload to finish if started
+    if (uploading) {
+      setImgError("Please wait for the image upload to finish.");
+      return;
+    }
+    
     addOffer({ ...form, title: form.title.trim(), description: form.description.trim() || "Limited-time offer" });
     setForm({ title: "", description: "", color: "#FBE3EA", image: "", active: true });
+    setImgError("");
   };
 
   return (
@@ -1026,9 +1069,29 @@ function AdminOffersPage({ offers, addOffer, deleteOffer, updateOffer, callSheet
 }
 
 function AdminOrdersPage({ orders, updateStatus }) {
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+
   const postAcceptStatuses = ["Confirmed", "Preparing", "Out for Delivery", "Delivered"];
-  const pending = orders.filter((o) => o.status === "Pending");
-  const rest = orders.filter((o) => o.status !== "Pending");
+  
+  // Filter orders by date range
+  const filteredOrders = orders.filter((o) => {
+    const orderDate = new Date(o.date);
+    if (startDate) {
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
+      if (orderDate < start) return false;
+    }
+    if (endDate) {
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      if (orderDate > end) return false;
+    }
+    return true;
+  });
+
+  const pending = filteredOrders.filter((o) => o.status === "Pending");
+  const rest = filteredOrders.filter((o) => o.status !== "Pending");
 
   const OrderCard = ({ o }) => (
     <div style={{ background: "#fff", border: `2px solid ${o.status === "Pending" ? COLORS.marigold : COLORS.line}`, borderRadius: 16, padding: 16, marginBottom: 12 }}>
@@ -1087,6 +1150,39 @@ function AdminOrdersPage({ orders, updateStatus }) {
       <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 24, color: COLORS.cocoa, marginBottom: 4 }}>Admin · All Orders</h2>
       <p style={{ fontFamily: "Nunito, sans-serif", fontSize: 13, color: "#8A6C5F", marginBottom: 18 }}>New orders arrive as Pending — accept them to confirm and notify the customer.</p>
 
+      <div style={{ background: "#fff", border: `2px solid ${COLORS.line}`, borderRadius: 16, padding: 16, marginBottom: 20 }}>
+        <div style={{ fontFamily: "Nunito, sans-serif", fontWeight: 800, color: COLORS.cocoa, marginBottom: 12 }}>📅 Filter by Date</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 12, alignItems: "flex-end" }}>
+          <div>
+            <label style={{ display: "block", fontFamily: "Nunito, sans-serif", fontSize: 12.5, fontWeight: 800, color: COLORS.cocoa, marginBottom: 6 }}>From</label>
+            <input 
+              type="date" 
+              value={startDate} 
+              onChange={(e) => setStartDate(e.target.value)}
+              style={{ width: "100%", padding: "8px 10px", borderRadius: 10, border: `2px solid ${COLORS.line}`, fontFamily: "Nunito, sans-serif", fontSize: 13 }}
+            />
+          </div>
+          <div>
+            <label style={{ display: "block", fontFamily: "Nunito, sans-serif", fontSize: 12.5, fontWeight: 800, color: COLORS.cocoa, marginBottom: 6 }}>To</label>
+            <input 
+              type="date" 
+              value={endDate} 
+              onChange={(e) => setEndDate(e.target.value)}
+              style={{ width: "100%", padding: "8px 10px", borderRadius: 10, border: `2px solid ${COLORS.line}`, fontFamily: "Nunito, sans-serif", fontSize: 13 }}
+            />
+          </div>
+          <button 
+            onClick={() => { setStartDate(""); setEndDate(""); }}
+            style={{ padding: "8px 14px", borderRadius: 10, border: `2px solid ${COLORS.line}`, background: "#fff", fontFamily: "Nunito, sans-serif", fontWeight: 800, fontSize: 12.5, color: COLORS.cocoa, cursor: "pointer" }}
+          >
+            Clear
+          </button>
+        </div>
+        <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 12, color: "#8A6C5F", marginTop: 8 }}>
+          Showing {filteredOrders.length} of {orders.length} orders
+        </div>
+      </div>
+
       {pending.length > 0 && (
         <>
           <div style={{ fontFamily: "Nunito, sans-serif", fontWeight: 800, fontSize: 13, color: "#B4720F", marginBottom: 10 }}>
@@ -1097,8 +1193,8 @@ function AdminOrdersPage({ orders, updateStatus }) {
         </>
       )}
 
-      {orders.length === 0 ? (
-        <div style={{ color: "#8A6C5F", fontFamily: "Nunito, sans-serif", textAlign: "center", padding: "40px 0" }}>No orders placed yet.</div>
+      {filteredOrders.length === 0 ? (
+        <div style={{ color: "#8A6C5F", fontFamily: "Nunito, sans-serif", textAlign: "center", padding: "40px 0" }}>No orders found for the selected date range.</div>
       ) : (
         rest.slice().reverse().map((o) => <OrderCard key={o.id} o={o} />)
       )}
