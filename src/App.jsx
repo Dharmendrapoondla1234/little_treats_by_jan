@@ -874,8 +874,15 @@ function AdminProductsPage({ products, addProduct, deleteProduct, updateProduct,
             (async () => {
               const result = await callSheet({ action: "getProducts" });
               if (result.ok && Array.isArray(result.products)) {
-                setProducts(result.products);
+                console.log("✓ Reloaded products:", result.products);
+                const withImages = result.products.map(p => ({
+                  ...p,
+                  image: String(p.image || "").trim() || "",
+                }));
+                setProducts(withImages);
                 pushToast("✓ Products reloaded from Google Sheets");
+              } else {
+                pushToast("❌ Failed to reload products");
               }
             })();
           }}
@@ -1279,7 +1286,13 @@ export default function LittleTreatsApp() {
     (async () => {
       const result = await callSheet({ action: "getProducts" });
       if (result.ok && Array.isArray(result.products) && result.products.length) {
-        setProducts(result.products);
+        console.log("✓ Loaded products from Google Sheets:", result.products);
+        // Filter out products with no image and ensure image URLs are clean
+        const withImages = result.products.map(p => ({
+          ...p,
+          image: String(p.image || "").trim() || "",
+        }));
+        setProducts(withImages);
       }
     })();
     (async () => {

@@ -400,6 +400,12 @@ function getAllProducts() {
   for (let r = 1; r < data.length; r++) {
     const row = data[r];
     if (!row || !row[idIdx]) continue;
+    
+    let imageUrl = "";
+    if (imageIdx >= 0 && row[imageIdx]) {
+      imageUrl = String(row[imageIdx]).trim();
+    }
+    
     products.push({
       id: String(row[idIdx] || ""),
       name: row[nameIdx] || "",
@@ -411,7 +417,7 @@ function getAllProducts() {
       emoji: row[emojiIdx] || "🍪",
       desc: row[descIdx] || "",
       discountPercent: Number(row[discountIdx]) || 0,
-      image: imageIdx >= 0 ? (row[imageIdx] || "") : "",
+      image: imageUrl,
     });
   }
   return products;
@@ -500,7 +506,7 @@ function getAllOffers() {
       title: row[1] || "Seasonal Offer",
       description: row[2] || "",
       color: row[3] || "#FBE3EA",
-      image: row[4] || "",
+      image: String(row[4] || "").trim(),
       active: String(row[5]).toLowerCase() !== "false" && String(row[5]) !== "0",
     });
   }
