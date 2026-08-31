@@ -386,13 +386,14 @@ function ProductsPage({ products, addToCart, toast }) {
           const finalPrice = effectivePrice(p);
           return (
             <div key={p.id} style={{ background: "#fff", borderRadius: 20, border: `2px solid ${COLORS.line}`, overflow: "hidden", display: "flex", flexDirection: "column", opacity: outOfStock ? 0.75 : 1 }}>
-              <div style={{ background: COLORS.blush, textAlign: "center", padding: p.image ? 0 : "22px 0", position: "relative", height: 130, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                {p.image ? (
+              <div style={{ background: COLORS.blush, textAlign: "center", padding: 0, position: "relative", height: 130, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+                {p.image && String(p.image).trim().length > 0 ? (
                   <img 
                     src={p.image} 
                     alt={p.name} 
-                    style={{ width: "100%", height: 130, objectFit: "cover", display: "block" }}
-                    onError={() => console.warn(`Image failed to load: ${p.image}`)}
+                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                    onError={() => console.warn(`⚠️ Image failed to load for ${p.name}:`, p.image)}
+                    onLoad={() => console.log(`✓ Image loaded: ${p.name}`)}
                   />
                 ) : (
                   <span style={{ fontSize: 54 }}>{p.emoji}</span>
@@ -923,15 +924,13 @@ function AdminProductsPage({ products, addProduct, deleteProduct, updateProduct,
           <div key={p.id} style={{ background: "#fff", border: `2px solid ${COLORS.line}`, borderRadius: 16, padding: 14, position: "relative" }}>
             <button onClick={() => deleteProduct(p.id)} style={{ position: "absolute", top: 10, right: 10, background: "none", border: "none", color: "#C6296B", cursor: "pointer" }}><Trash2 size={15} /></button>
             <div style={{ width: "100%", height: 90, borderRadius: 10, marginBottom: 8, background: COLORS.blush, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-              {p.image ? (
+              {p.image && String(p.image).trim().length > 0 ? (
                 <img 
                   src={p.image} 
                   alt={p.name} 
-                  style={{ width: "100%", height: 90, objectFit: "cover", borderRadius: 10 }}
-                  onError={(e) => {
-                    console.warn(`Image failed to load for ${p.name}: ${p.image}`);
-                    e.target.style.display = "none";
-                    e.target.parentElement.innerHTML = `<span style="font-size: 40px">${p.emoji}</span>`;
+                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                  onError={() => {
+                    console.warn(`⚠️ Image failed to load for ${p.name}: ${p.image}`);
                   }}
                 />
               ) : (
@@ -1286,11 +1285,11 @@ export default function LittleTreatsApp() {
     (async () => {
       const result = await callSheet({ action: "getProducts" });
       if (result.ok && Array.isArray(result.products) && result.products.length) {
-        console.log("✓ Loaded products from Google Sheets:", result.products);
-        // Filter out products with no image and ensure image URLs are clean
+        console.log("✓ Loaded products from Google Sheets:", result.products.map(p => ({ id: p.id, name: p.name, image: p.image ? "✓ has image" : "❌ no image" })));
+        // Ensure all image URLs are proper strings
         const withImages = result.products.map(p => ({
           ...p,
-          image: String(p.image || "").trim() || "",
+          image: String(p.image || "").trim(),
         }));
         setProducts(withImages);
       }

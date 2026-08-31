@@ -45,12 +45,12 @@ const OFFERS_SHEET = "Offers";
 const OFFERS_HEADERS = ["ID", "Title", "Description", "Color", "ImageURL", "Active", "CreatedAt"];
 
 const SEED_PRODUCTS = [
-  ["p1", "Double Choco Bites", 249, "250g", 25, "Bestseller", "🍫", "Rich cocoa cookie bites rolled in dark chocolate chunks.", 15],
-  ["p2", "Classic Butter Cookies", 199, "250g", 30, "Bestseller", "🍪", "Melt-in-mouth butter cookies, small-batch baked.", 0],
-  ["p3", "Choco Chip Crunch", 229, "250g", 18, "New", "🍪", "Golden cookies loaded with chocolate chips.", 0],
-  ["p4", "Assorted Biscuit Mix", 279, "300g", 12, "Combo", "🧁", "Our four best flavours mixed into one happy jar.", 10],
-  ["p5", "Nutty Cocoa Rounds", 259, "250g", 0, "New", "🍫", "Dark cocoa cookies studded with roasted nuts.", 0],
-  ["p6", "Honey Oat Biscuits", 219, "250g", 20, "", "🍪", "Wholesome oats sweetened with honey, lightly crisp.", 0],
+  ["p1", "Double Choco Bites", 249, "250g", 25, "Bestseller", "🍫", "Rich cocoa cookie bites rolled in dark chocolate chunks.", 15, new Date(), ""],
+  ["p2", "Classic Butter Cookies", 199, "250g", 30, "Bestseller", "🍪", "Melt-in-mouth butter cookies, small-batch baked.", 0, new Date(), ""],
+  ["p3", "Choco Chip Crunch", 229, "250g", 18, "New", "🍪", "Golden cookies loaded with chocolate chips.", 0, new Date(), ""],
+  ["p4", "Assorted Biscuit Mix", 279, "300g", 12, "Combo", "🧁", "Our four best flavours mixed into one happy jar.", 10, new Date(), ""],
+  ["p5", "Nutty Cocoa Rounds", 259, "250g", 0, "New", "🍫", "Dark cocoa cookies studded with roasted nuts.", 0, new Date(), ""],
+  ["p6", "Honey Oat Biscuits", 219, "250g", 20, "", "🍪", "Wholesome oats sweetened with honey, lightly crisp.", 0, new Date(), ""],
 ];
 
 /* ------------------------- entry points ------------------------- */
