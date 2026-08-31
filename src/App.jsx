@@ -868,6 +868,23 @@ function AdminProductsPage({ products, addProduct, deleteProduct, updateProduct,
       <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 24, color: COLORS.cocoa, marginBottom: 4 }}>Admin · Products</h2>
       <p style={{ fontFamily: "Nunito, sans-serif", fontSize: 13, color: "#8A6C5F", marginBottom: 18 }}>Add new treats, set stock levels, discounts, and upload product photos.</p>
 
+      {sheetUrl && (
+        <button 
+          onClick={() => {
+            (async () => {
+              const result = await callSheet({ action: "getProducts" });
+              if (result.ok && Array.isArray(result.products)) {
+                setProducts(result.products);
+                pushToast("✓ Products reloaded from Google Sheets");
+              }
+            })();
+          }}
+          style={{ marginBottom: 18, padding: "8px 14px", borderRadius: 10, background: COLORS.mint, color: "#fff", border: "none", fontFamily: "Nunito, sans-serif", fontWeight: 800, fontSize: 13, cursor: "pointer" }}
+        >
+          🔄 Reload from Google Sheets
+        </button>
+      )}
+
       <div style={{ background: "#fff", border: `2px solid ${COLORS.line}`, borderRadius: 18, padding: 18, marginBottom: 24 }}>
         <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 12 }}>
           <Field label="Product Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Choco Delight Cookies" />
@@ -898,11 +915,22 @@ function AdminProductsPage({ products, addProduct, deleteProduct, updateProduct,
         {products.map((p) => (
           <div key={p.id} style={{ background: "#fff", border: `2px solid ${COLORS.line}`, borderRadius: 16, padding: 14, position: "relative" }}>
             <button onClick={() => deleteProduct(p.id)} style={{ position: "absolute", top: 10, right: 10, background: "none", border: "none", color: "#C6296B", cursor: "pointer" }}><Trash2 size={15} /></button>
-            {p.image ? (
-              <img src={p.image} alt={p.name} style={{ width: "100%", height: 90, objectFit: "cover", borderRadius: 10, marginBottom: 8 }} />
-            ) : (
-              <div style={{ fontSize: 30 }}>{p.emoji}</div>
-            )}
+            <div style={{ width: "100%", height: 90, borderRadius: 10, marginBottom: 8, background: COLORS.blush, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+              {p.image ? (
+                <img 
+                  src={p.image} 
+                  alt={p.name} 
+                  style={{ width: "100%", height: 90, objectFit: "cover", borderRadius: 10 }}
+                  onError={(e) => {
+                    console.warn(`Image failed to load for ${p.name}: ${p.image}`);
+                    e.target.style.display = "none";
+                    e.target.parentElement.innerHTML = `<span style="font-size: 40px">${p.emoji}</span>`;
+                  }}
+                />
+              ) : (
+                <span style={{ fontSize: 40 }}>{p.emoji}</span>
+              )}
+            </div>
             <div style={{ fontFamily: "Nunito, sans-serif", fontWeight: 800, fontSize: 14, color: COLORS.cocoa, marginTop: 6 }}>{p.name}</div>
             <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 12, color: COLORS.magenta, fontWeight: 700 }}>
               {Number(p.discountPercent) > 0 ? (
