@@ -124,6 +124,23 @@ function effectivePrice(product) {
   return Math.round(product.price * (1 - pct / 100));
 }
 
+function normalizeImageUrl(image) {
+  const raw = String(image || "").trim();
+  if (!raw) return "";
+  if (raw.startsWith("https://drive.google.com/uc?id=")) {
+    return raw.replace("https://drive.google.com/uc?id=", "https://drive.google.com/uc?export=view&id=");
+  }
+  if (raw.includes("drive.google.com/file/d/")) {
+    const match = raw.match(/\/d\/([^/]+)/);
+    if (match) return `https://drive.google.com/uc?export=view&id=${match[1]}`;
+  }
+  if (raw.includes("drive.google.com/open?id=")) {
+    const match = raw.match(/[?&]id=([^&]+)/);
+    if (match) return `https://drive.google.com/uc?export=view&id=${match[1]}`;
+  }
+  return raw;
+}
+
 const ADMIN_EMAIL = "admin@littletreats.com";
 const ADMIN_PASSWORD = "admin123";
 
@@ -389,10 +406,14 @@ function ProductsPage({ products, addToCart, toast }) {
               <div style={{ background: COLORS.blush, textAlign: "center", padding: 0, position: "relative", height: 130, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
                 {p.image && String(p.image).trim().length > 0 ? (
                   <img 
-                    src={p.image} 
+                    src={normalizeImageUrl(p.image)} 
                     alt={p.name} 
                     style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                    onError={() => console.warn(`⚠️ Image failed to load for ${p.name}:`, p.image)}
+                    onError={(e) => {
+                      console.warn(`⚠️ Image failed to load for ${p.name}:`, p.image);
+                      e.currentTarget.style.display = "none";
+                      e.currentTarget.parentElement.innerHTML = `<span style="font-size:54px">${p.emoji || "🍪"}</span>`;
+                    }}
                     onLoad={() => console.log(`✓ Image loaded: ${p.name}`)}
                   />
                 ) : (
@@ -926,11 +947,13 @@ function AdminProductsPage({ products, addProduct, deleteProduct, updateProduct,
             <div style={{ width: "100%", height: 90, borderRadius: 10, marginBottom: 8, background: COLORS.blush, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
               {p.image && String(p.image).trim().length > 0 ? (
                 <img 
-                  src={p.image} 
+                  src={normalizeImageUrl(p.image)} 
                   alt={p.name} 
                   style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                  onError={() => {
+                  onError={(e) => {
                     console.warn(`⚠️ Image failed to load for ${p.name}: ${p.image}`);
+                    e.currentTarget.style.display = "none";
+                    e.currentTarget.parentElement.innerHTML = `<span style="font-size:40px">${p.emoji || "🍪"}</span>`;
                   }}
                 />
               ) : (
@@ -1286,10 +1309,10 @@ export default function LittleTreatsApp() {
       const result = await callSheet({ action: "getProducts" });
       if (result.ok && Array.isArray(result.products) && result.products.length) {
         console.log("✓ Loaded products from Google Sheets:", result.products.map(p => ({ id: p.id, name: p.name, image: p.image ? "✓ has image" : "❌ no image" })));
-        // Ensure all image URLs are proper strings
+        // Ensure all image URLs are proper strings and compatible with browser image tags.
         const withImages = result.products.map(p => ({
           ...p,
-          image: String(p.image || "").trim(),
+          image: normalizeImageUrl(p.image),
         }));
         setProducts(withImages);
       }

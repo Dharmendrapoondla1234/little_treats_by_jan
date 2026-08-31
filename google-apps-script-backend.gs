@@ -581,7 +581,7 @@ function finalizeImageUpload(uploadId, total, mimeType) {
     const folder = getOrCreateDriveFolder("Little Treats Payment Screenshots");
     const file = folder.createFile(blob);
     file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-    const url = "https://drive.google.com/uc?id=" + file.getId();
+    const url = "https://drive.google.com/uc?export=view&id=" + file.getId();
 
     for (let i = 0; i < total; i++) cache.remove(uploadId + "_" + i);
     return { ok: true, url: url };
