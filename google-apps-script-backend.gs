@@ -27,7 +27,7 @@ const ADMIN_EMAIL = "admin@littletreats.com";
 const ADMIN_PASSWORD = "admin123";
 
 const ORDERS_SHEET = "Orders";
-const ORDERS_HEADERS = ["Order ID", "Date", "Customer Name", "Customer Email", "Phone", "Address", "City", "Pincode", "Items", "Total (₹)", "Status"];
+const ORDERS_HEADERS = ["Order ID", "Date", "Customer Name", "Customer Email", "Phone", "Address", "City", "Pincode", "Items", "Total (₹)", "Status", "Payment Method", "Payment Status", "Razorpay Payment ID", "UTR Number"];
 
 const USERS_SHEET = "Users";
 const USERS_HEADERS = ["Email", "Name", "PasswordHash", "Salt", "Role", "CreatedAt", "Phone", "Address", "City", "Pincode"];
@@ -70,7 +70,13 @@ function doPost(e) {
 
 function handleAction(body) {
   switch (body.action) {
-    case "newOrder": saveOrderToSheet(body.order); sendOrderReceivedEmail(body.order); return { ok: true };
+    case "newOrder":
+      if (body.order.utr && !isUtrUnique(body.order.utr)) {
+        return { ok: false, error: "This UTR/reference number has already been used for another order. Please double-check and try again." };
+      }
+      saveOrderToSheet(body.order);
+      sendOrderReceivedEmail(body.order);
+      return { ok: true };
     case "updateStatus": updateStatusInSheet(body.orderId, body.status); sendStatusEmail(body.order, body.status); return { ok: true };
     case "getOrders": return { ok: true, orders: getAllOrders() };
 
@@ -83,6 +89,10 @@ function handleAction(body) {
     case "addProduct": return addProduct(body.product);
     case "updateProduct": return updateProduct(body.id, body.patch);
     case "deleteProduct": return deleteProduct(body.id);
+
+    case "getRazorpayKey": return { ok: true, keyId: getScriptProp("RAZORPAY_KEY_ID") };
+    case "createRazorpayOrder": return createRazorpayOrder(body.amount, body.receipt);
+    case "verifyRazorpayPayment": return verifyRazorpayPayment(body.razorpay_order_id, body.razorpay_payment_id, body.razorpay_signature);
 
     default: return { ok: false, error: "Unknown action: " + body.action };
   }
@@ -116,7 +126,22 @@ function sheetRowsAsObjects(sheet) {
 
 /* ------------------------- Orders ------------------------- */
 
-function getOrdersSheet() { return getOrCreateSheet(ORDERS_SHEET, ORDERS_HEADERS); }
+function getOrdersSheet() {
+  const sheet = getOrCreateSheet(ORDERS_SHEET, ORDERS_HEADERS);
+  migrateOrdersSheetIfNeeded(sheet);
+  return sheet;
+}
+
+// Upgrades an older Orders sheet (created before payment columns existed)
+// by appending the missing headers at the end, in ORDERS_HEADERS order.
+function migrateOrdersSheetIfNeeded(sheet) {
+  ["Payment Method", "Payment Status", "Razorpay Payment ID", "UTR Number"].forEach(col => {
+    const current = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    if (current.indexOf(col) === -1) {
+      sheet.getRange(1, sheet.getLastColumn() + 1).setValue(col);
+    }
+  });
+}
 
 function saveOrderToSheet(order) {
   const sheet = getOrdersSheet();
@@ -124,8 +149,22 @@ function saveOrderToSheet(order) {
   sheet.appendRow([
     order.id, new Date(order.date), order.address.name, order.userEmail || "",
     order.address.phone, order.address.line1, order.address.city, order.address.pincode,
-    itemsText, order.total, order.status
+    itemsText, order.total, order.status,
+    order.paymentMethod || "", order.paymentStatus || "Unpaid", order.razorpayPaymentId || "", order.utr || ""
   ]);
+}
+
+// Scans the UTR column for an existing, non-empty match (case-insensitive).
+function isUtrUnique(utr) {
+  if (!utr) return true;
+  const sheet = getOrdersSheet();
+  const data = sheet.getDataRange().getValues();
+  const target = String(utr).trim().toLowerCase();
+  for (let r = 1; r < data.length; r++) {
+    const existing = String(data[r][14] || "").trim().toLowerCase();
+    if (existing && existing === target) return false;
+  }
+  return true;
 }
 
 function updateStatusInSheet(orderId, status) {
@@ -146,6 +185,7 @@ function getAllOrders() {
       id: String(row[0]), date: row[1] instanceof Date ? row[1].toISOString() : String(row[1]),
       address: { name: row[2], phone: row[4], line1: row[5], city: row[6], pincode: row[7] },
       userEmail: row[3], itemsText: row[8], total: row[9], status: row[10],
+      paymentMethod: row[11] || "", paymentStatus: row[12] || "Unpaid", razorpayPaymentId: row[13] || "", utr: row[14] || "",
     });
   }
   return orders;
@@ -155,6 +195,7 @@ function getAllOrders() {
 
 function getUsersSheet() {
   const sheet = getOrCreateSheet(USERS_SHEET, USERS_HEADERS);
+  migrateUsersSheetIfNeeded(sheet);
   // Seed the admin account once so admin login always works via the sheet.
   const rows = sheetRowsAsObjects(sheet);
   const hasAdmin = rows.some(r => String(r.obj.Email).toLowerCase() === ADMIN_EMAIL);
@@ -163,6 +204,19 @@ function getUsersSheet() {
     sheet.appendRow([ADMIN_EMAIL, "Jan", hashPassword(ADMIN_PASSWORD, salt), salt, "admin", new Date()]);
   }
   return sheet;
+}
+
+// Upgrades an older Users sheet (created before address columns existed) by
+// appending any missing headers at the end, matching USERS_HEADERS order.
+function migrateUsersSheetIfNeeded(sheet) {
+  const lastCol = sheet.getLastColumn();
+  const headerRow = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  ["Phone", "Address", "City", "Pincode"].forEach(col => {
+    const current = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    if (current.indexOf(col) === -1) {
+      sheet.getRange(1, sheet.getLastColumn() + 1).setValue(col);
+    }
+  });
 }
 
 function generateSalt() { return Utilities.getUuid().slice(0, 8); }
@@ -181,8 +235,14 @@ function registerUser(user) {
 
   const salt = generateSalt();
   const hash = hashPassword(user.password, salt);
-  sheet.appendRow([email, user.name, hash, salt, "user", new Date()]);
-  return { ok: true, user: { id: email, name: user.name, email, role: "user" } };
+  sheet.appendRow([email, user.name, hash, salt, "user", new Date(), user.phone || "", user.address || "", user.city || "", user.pincode || ""]);
+  return {
+    ok: true,
+    user: {
+      id: email, name: user.name, email, role: "user",
+      phone: user.phone || "", address: user.address || "", city: user.city || "", pincode: user.pincode || "",
+    }
+  };
 }
 
 function loginUser(email, password) {
@@ -241,7 +301,30 @@ function getProductsSheet() {
   if (sheet.getLastRow() === 1) { // headers only — seed defaults once
     SEED_PRODUCTS.forEach(p => sheet.appendRow(p.concat([new Date()])));
   }
+  migrateProductsSheetIfNeeded(sheet);
   return sheet;
+}
+
+// Upgrades an older Products sheet (created before the Discount column
+// existed) by inserting "Discount" in the correct position — right before
+// "UpdatedAt" — since the rest of this file reads columns by fixed
+// position. Existing rows get a default of 0 (no discount).
+function migrateProductsSheetIfNeeded(sheet) {
+  const lastCol = sheet.getLastColumn();
+  const headerRow = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  if (headerRow.indexOf("Discount") !== -1) return; // already up to date
+
+  const updatedAtIdx = headerRow.indexOf("UpdatedAt"); // 0-based
+  const insertBeforeCol = updatedAtIdx >= 0 ? updatedAtIdx + 1 : lastCol + 1; // 1-based
+  sheet.insertColumnBefore(insertBeforeCol);
+  sheet.getRange(1, insertBeforeCol).setValue("Discount");
+
+  const lastRow = sheet.getLastRow();
+  if (lastRow > 1) {
+    const defaults = [];
+    for (let i = 0; i < lastRow - 1; i++) defaults.push([0]);
+    sheet.getRange(2, insertBeforeCol, lastRow - 1, 1).setValues(defaults);
+  }
 }
 
 function getAllProducts() {
@@ -289,6 +372,58 @@ function deleteProduct(id) {
     if (String(data[r][0]) === String(id)) { sheet.deleteRow(r + 1); return { ok: true }; }
   }
   return { ok: false, error: "Product not found." };
+}
+
+/* ------------------------- Razorpay (UPI) ------------------------- */
+// Keys are read from Script Properties, never hardcoded here — set them via
+// Apps Script's Project Settings > Script Properties: RAZORPAY_KEY_ID and
+// RAZORPAY_KEY_SECRET. The Secret never leaves this server-side script.
+
+function getScriptProp(name) {
+  return PropertiesService.getScriptProperties().getProperty(name) || "";
+}
+
+function createRazorpayOrder(amountRupees, receipt) {
+  const keyId = getScriptProp("RAZORPAY_KEY_ID");
+  const keySecret = getScriptProp("RAZORPAY_KEY_SECRET");
+  if (!keyId || !keySecret) return { ok: false, error: "Razorpay keys are not configured yet in Script Properties." };
+
+  const auth = Utilities.base64Encode(keyId + ":" + keySecret);
+  const payload = {
+    amount: Math.round(Number(amountRupees) * 100), // paise
+    currency: "INR",
+    receipt: receipt || ("order_" + Date.now()),
+    payment_capture: 1,
+  };
+
+  try {
+    const response = UrlFetchApp.fetch("https://api.razorpay.com/v1/orders", {
+      method: "post",
+      contentType: "application/json",
+      headers: { Authorization: "Basic " + auth },
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true,
+    });
+    const data = JSON.parse(response.getContentText());
+    if (data.error) return { ok: false, error: data.error.description || "Razorpay order creation failed." };
+    return { ok: true, orderId: data.id, amount: data.amount, currency: data.currency, keyId: keyId };
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+function verifyRazorpayPayment(orderId, paymentId, signature) {
+  const keySecret = getScriptProp("RAZORPAY_KEY_SECRET");
+  if (!keySecret) return { ok: false, error: "Razorpay key secret not configured." };
+  if (!orderId || !paymentId || !signature) return { ok: false, error: "Missing payment verification fields." };
+
+  const expected = bytesToHex(Utilities.computeHmacSha256Signature(orderId + "|" + paymentId, keySecret));
+  if (expected !== signature) return { ok: false, error: "Payment signature verification failed." };
+  return { ok: true };
+}
+
+function bytesToHex(bytes) {
+  return bytes.map(b => (b < 0 ? b + 256 : b).toString(16).padStart(2, "0")).join("");
 }
 
 /* ------------------------- Emails ------------------------- */

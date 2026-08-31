@@ -26,6 +26,26 @@ if (typeof document !== "undefined" && !document.getElementById(FONT_LINK_ID)) {
   document.head.appendChild(link);
 }
 
+// Loads the Razorpay Checkout widget script once, on demand (only when the
+// customer is actually about to pay), and resolves once it's ready to use.
+function loadRazorpayScript() {
+  return new Promise((resolve, reject) => {
+    if (window.Razorpay) return resolve(true);
+    const existing = document.getElementById("razorpay-checkout-js");
+    if (existing) {
+      existing.addEventListener("load", () => resolve(true));
+      existing.addEventListener("error", () => reject(new Error("Failed to load Razorpay script")));
+      return;
+    }
+    const script = document.createElement("script");
+    script.id = "razorpay-checkout-js";
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.onload = () => resolve(true);
+    script.onerror = () => reject(new Error("Failed to load Razorpay script"));
+    document.body.appendChild(script);
+  });
+}
+
 const COLORS = {
   magenta: "#C6296B",
   magentaDark: "#9E1E54",
@@ -398,13 +418,47 @@ function CartPage({ cart, products, updateQty, removeFromCart, setPage, user }) 
   );
 }
 
-function CheckoutPage({ cart, products, placeOrder, setPage, user }) {
+// TODO: replace with your real UPI ID once set up (shown to customers at checkout).
+const BUSINESS_UPI_ID = "9160360405@ibl";
+
+function CheckoutPage({ cart, products, placeOrder, setPage, user, pushToast }) {
   const [address, setAddress] = useState({
     name: user?.name || "", phone: user?.phone || "", line1: user?.address || "", city: user?.city || "", pincode: user?.pincode || "",
   });
+  const [utr, setUtr] = useState("");
+  const [screenshot, setScreenshot] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
   const items = cart.map((c) => ({ ...c, product: products.find((p) => p.id === c.id) })).filter((i) => i.product);
   const total = items.reduce((s, i) => s + effectivePrice(i.product) * i.qty, 0);
-  const canSubmit = address.name && address.phone && address.line1 && address.city && address.pincode;
+  const canSubmit = address.name && address.phone && address.line1 && address.city && address.pincode && utr.trim().length >= 6;
+
+  const upiLink = `upi://pay?pa=${encodeURIComponent(BUSINESS_UPI_ID)}&pn=${encodeURIComponent("Little Treats by Jan")}&am=${total}&cu=INR`;
+  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(upiLink)}`;
+
+  const handleScreenshot = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setScreenshot(reader.result);
+    reader.readAsDataURL(file);
+  };
+
+  const submit = async () => {
+    setError("");
+    setSubmitting(true);
+    const result = await placeOrder(address, {
+      utr: utr.trim(),
+      paymentMethod: "UPI (Manual)",
+      paymentStatus: "Pending Verification",
+    });
+    setSubmitting(false);
+    if (!result?.ok) {
+      setError(result?.error || "Couldn't place order. Please try again.");
+      pushToast(result?.error || "Couldn't place order.");
+    }
+  };
 
   return (
     <div style={{ maxWidth: 560, margin: "0 auto", padding: "24px 18px 60px" }}>
@@ -435,8 +489,36 @@ function CheckoutPage({ cart, products, placeOrder, setPage, user }) {
         </div>
       </div>
 
-      <Button full variant="primary" disabled={!canSubmit} style={{ marginTop: 16 }} onClick={() => placeOrder(address)}>
-        <Check size={16} /> Confirm Order
+      <div style={{ background: "#fff", border: `2px solid ${COLORS.line}`, borderRadius: 18, padding: 18, marginTop: 16 }}>
+        <div style={{ fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: 16, color: COLORS.cocoa, marginBottom: 10 }}>Pay via UPI</div>
+        <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
+          <img src={qrImageUrl} alt="UPI QR code" style={{ width: 130, height: 130, borderRadius: 10, border: `2px solid ${COLORS.line}` }} />
+          <div style={{ flex: 1, minWidth: 180, fontFamily: "Nunito, sans-serif", fontSize: 13, color: "#6B4A3E" }}>
+            <div>Scan the QR, or pay directly to:</div>
+            <div style={{ fontWeight: 800, color: COLORS.magenta, margin: "4px 0" }}>{BUSINESS_UPI_ID}</div>
+            <div>Amount: <b>₹{total}</b></div>
+          </div>
+        </div>
+
+        <div style={{ marginTop: 16 }}>
+          <Field label="UTR / Transaction Reference Number" value={utr} onChange={(e) => setUtr(e.target.value)} placeholder="e.g. 402812345678" />
+        </div>
+
+        <label style={{ display: "block", marginBottom: 10 }}>
+          <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, color: COLORS.cocoa, marginBottom: 6 }}>Payment Screenshot (optional)</span>
+          <input type="file" accept="image/*" onChange={handleScreenshot} style={{ fontFamily: "Nunito, sans-serif", fontSize: 13 }} />
+          {screenshot && <img src={screenshot} alt="payment screenshot preview" style={{ width: 90, height: 90, objectFit: "cover", borderRadius: 10, marginTop: 8, border: `2px solid ${COLORS.line}` }} />}
+        </label>
+
+        <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 11, color: "#B08A7A" }}>
+          Each UTR number can only be used once — make sure it's copied exactly from your UPI app's payment confirmation.
+        </div>
+      </div>
+
+      {error && <div style={{ color: "#C6296B", fontFamily: "Nunito, sans-serif", fontSize: 12.5, fontWeight: 700, marginTop: 12 }}>{error}</div>}
+
+      <Button full variant="primary" disabled={!canSubmit || submitting} style={{ marginTop: 16 }} onClick={submit}>
+        {submitting ? "Confirming..." : <><Check size={16} /> Confirm Order</>}
       </Button>
     </div>
   );
@@ -471,7 +553,7 @@ function ConfirmationPage({ lastOrder, setPage }) {
 
 function LoginPage({ setPage, loginUser, registerUser, resetPassword, authBusy }) {
   const [mode, setMode] = useState("login"); // login | register | forgot
-  const [form, setForm] = useState({ name: "", email: "", password: "" });
+  const [form, setForm] = useState({ name: "", email: "", password: "", phone: "", address: "", city: "", pincode: "" });
   const [resetForm, setResetForm] = useState({ email: "", newPassword: "", confirm: "" });
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -483,8 +565,10 @@ function LoginPage({ setPage, loginUser, registerUser, resetPassword, authBusy }
       if (!result.ok) return setError(result.error);
       setPage(result.user.role === "admin" ? "admin" : "home");
     } else {
-      if (!form.name || !form.email || !form.password) return setError("Please fill in all fields.");
-      const result = await registerUser(form.name, form.email, form.password);
+      if (!form.name || !form.email || !form.password) return setError("Please fill in name, email, and password.");
+      const result = await registerUser(form.name, form.email, form.password, {
+        phone: form.phone, address: form.address, city: form.city, pincode: form.pincode,
+      });
       if (!result.ok) return setError(result.error);
       setPage("home");
     }
@@ -533,6 +617,19 @@ function LoginPage({ setPage, loginUser, registerUser, resetPassword, authBusy }
             {mode === "register" && <Field label="Full Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Jane Doe" />}
             <Field label="Email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="you@example.com" />
             <Field label="Password" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="••••••••" />
+            {mode === "register" && (
+              <>
+                <Field label="Phone Number (optional)" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="98765 43210" />
+                <Field label="Delivery Address (optional)" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="House no, street, area" />
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <Field label="City" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} placeholder="City" />
+                  <Field label="Pincode" value={form.pincode} onChange={(e) => setForm({ ...form, pincode: e.target.value })} placeholder="560001" />
+                </div>
+                <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 11, color: "#B08A7A", marginBottom: 12 }}>
+                  Optional now — saves you typing it again at checkout. You can add or update it later too.
+                </div>
+              </>
+            )}
             {error && <div style={{ color: "#C6296B", fontFamily: "Nunito, sans-serif", fontSize: 12.5, fontWeight: 700, marginBottom: 10 }}>{error}</div>}
             <Button full variant="primary" onClick={submit} disabled={authBusy}>
               <Lock size={15} /> {authBusy ? "Please wait..." : mode === "login" ? "Log In" : "Sign Up"}
@@ -753,6 +850,13 @@ function AdminOrdersPage({ orders, updateStatus }) {
         )}
       </div>
       <div style={{ marginTop: 6, fontWeight: 800, color: COLORS.magenta, fontFamily: "Nunito, sans-serif" }}>Total ₹{o.total}</div>
+      {(o.utr || o.paymentMethod) && (
+        <div style={{ marginTop: 8, fontFamily: "Nunito, sans-serif", fontSize: 12, color: "#8A6C5F", display: "flex", flexWrap: "wrap", gap: 10 }}>
+          {o.paymentMethod && <span>💳 {o.paymentMethod}</span>}
+          {o.utr && <span>UTR: <b style={{ color: COLORS.cocoa }}>{o.utr}</b></span>}
+          {o.paymentStatus && <Pill bg={o.paymentStatus === "Paid" ? "#E3F3F1" : "#FFF1D9"} color={o.paymentStatus === "Paid" ? COLORS.mint : "#B4720F"}>{o.paymentStatus}</Pill>}
+        </div>
+      )}
     </div>
   );
 
@@ -869,16 +973,16 @@ export default function LittleTreatsApp() {
     } finally { setAuthBusy(false); }
   };
 
-  const registerUser = async (name, email, password) => {
+  const registerUser = async (name, email, password, address = {}) => {
     setAuthBusy(true);
     try {
       if (sheetUrl) {
-        const result = await callSheet({ action: "registerUser", user: { name, email, password } });
+        const result = await callSheet({ action: "registerUser", user: { name, email, password, ...address } });
         if (result.ok) { setUser(result.user); pushToast(`Welcome, ${result.user.name.split(" ")[0]}!`); return { ok: true }; }
         return { ok: false, error: result.error || "Registration failed." };
       }
       if (users.some((u) => u.email === email)) return { ok: false, error: "An account with this email already exists." };
-      const newUser = { id: "u" + Date.now(), name, email, password, role: "user" };
+      const newUser = { id: "u" + Date.now(), name, email, password, role: "user", ...address };
       setUsers((arr) => [...arr, newUser]); setUser(newUser); pushToast(`Welcome, ${name.split(" ")[0]}!`);
       return { ok: true };
     } finally { setAuthBusy(false); }
@@ -915,23 +1019,10 @@ export default function LittleTreatsApp() {
     return { ok: true };
   };
 
-  // Writes the order row to Google Sheets via the deployed Apps Script Web
-  // App (see google-apps-script-backend.gs). Uses GET with the payload in a
-  // query param — Apps Script Web Apps always redirect internally, and
-  // browsers silently downgrade POST-through-redirect to GET, so doPost
-  // never actually runs. GET survives the redirect intact.
-  const syncOrderToSheet = async (order) => {
-    if (!sheetUrl) return;
-    try {
-      const payload = encodeURIComponent(JSON.stringify({ action: "newOrder", order }));
-      await fetch(`${sheetUrl}?data=${payload}`, { method: "GET", mode: "no-cors" });
-    } catch (e) {
-      // network blocked in this preview environment — order is still saved locally
-      console.warn("Sheet sync skipped:", e);
-    }
-  };
-
-  const placeOrder = (address) => {
+  // Places the order via the Apps Script backend using the shared callSheet
+  // helper (readable JSON response, not fire-and-forget), so we can react to
+  // a real error — e.g. a UTR number that's already been used elsewhere.
+  const placeOrder = async (address, payment = {}) => {
     const items = cart.map((c) => {
       const p = products.find((pp) => pp.id === c.id);
       return { id: p.id, name: p.name, price: effectivePrice(p), qty: c.qty };
@@ -942,8 +1033,9 @@ export default function LittleTreatsApp() {
       return (p?.stock ?? 0) < i.qty;
     });
     if (insufficient) {
-      pushToast(`Sorry, "${insufficient.name}" doesn't have enough stock left.`);
-      return;
+      const msg = `Sorry, "${insufficient.name}" doesn't have enough stock left.`;
+      pushToast(msg);
+      return { ok: false, error: msg };
     }
 
     const total = items.reduce((s, i) => s + i.price * i.qty, 0);
@@ -955,7 +1047,24 @@ export default function LittleTreatsApp() {
       items, total, address,
       status: "Pending",
       date: new Date().toISOString(),
+      utr: payment.utr || "",
+      paymentMethod: payment.paymentMethod || "",
+      paymentStatus: payment.paymentStatus || "Unpaid",
+      razorpayPaymentId: payment.razorpayPaymentId || "",
     };
+
+    if (payment.utr && orders.some((o) => o.utr && o.utr.trim().toLowerCase() === payment.utr.trim().toLowerCase())) {
+      const msg = "This UTR/reference number has already been used for another order.";
+      return { ok: false, error: msg };
+    }
+
+    if (sheetUrl) {
+      const result = await callSheet({ action: "newOrder", order });
+      if (!result.ok) {
+        return { ok: false, error: result.error || "Couldn't place order. Please try again." };
+      }
+    }
+
     setOrders((o) => [...o, order]);
     setProducts((arr) => arr.map((p) => {
       const bought = items.find((i) => i.id === p.id);
@@ -966,7 +1075,6 @@ export default function LittleTreatsApp() {
     }));
     setLastOrder(order);
     setCart([]);
-    syncOrderToSheet(order);
 
     // Remember this address on the account for next time.
     setUser((u) => u ? { ...u, phone: address.phone, address: address.line1, city: address.city, pincode: address.pincode } : u);
@@ -974,6 +1082,7 @@ export default function LittleTreatsApp() {
 
     pushToast(`Order #${order.id} received — pending confirmation!`);
     setPage("confirmation");
+    return { ok: true, order };
   };
 
   // Pushes an order status change to the sheet too, so Admin decisions
@@ -1010,7 +1119,7 @@ export default function LittleTreatsApp() {
     switch (page) {
       case "products": content = <ProductsPage products={products} addToCart={addToCart} toast={pushToast} />; break;
       case "cart": content = <CartPage cart={cart} products={products} updateQty={updateQty} removeFromCart={removeFromCart} setPage={setPage} user={user} />; break;
-      case "checkout": content = user ? <CheckoutPage cart={cart} products={products} placeOrder={placeOrder} setPage={setPage} user={user} /> : <LoginPage setPage={setPage} loginUser={loginUser} registerUser={registerUser} resetPassword={resetPassword} authBusy={authBusy} />; break;
+      case "checkout": content = user ? <CheckoutPage cart={cart} products={products} placeOrder={placeOrder} setPage={setPage} user={user} pushToast={pushToast} /> : <LoginPage setPage={setPage} loginUser={loginUser} registerUser={registerUser} resetPassword={resetPassword} authBusy={authBusy} />; break;
       case "confirmation": content = <ConfirmationPage lastOrder={lastOrder} setPage={setPage} />; break;
       case "orders": content = user ? <OrdersPage orders={orders} user={user} setPage={setPage} /> : <LoginPage setPage={setPage} loginUser={loginUser} registerUser={registerUser} resetPassword={resetPassword} authBusy={authBusy} />; break;
       case "login": content = <LoginPage setPage={setPage} loginUser={loginUser} registerUser={registerUser} resetPassword={resetPassword} authBusy={authBusy} />; break;
