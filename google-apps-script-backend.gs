@@ -77,7 +77,7 @@ function handleAction(body) {
       saveOrderToSheet(body.order);
       sendOrderReceivedEmail(body.order);
       return { ok: true };
-    case "updateStatus": updateStatusInSheet(body.orderId, body.status); sendStatusEmail(body.order, body.status); return { ok: true };
+    case "updateStatus": updateStatusInSheet(body.orderId, body.status, body.paymentStatus); sendStatusEmail(body.order, body.status); return { ok: true };
     case "getOrders": return { ok: true, orders: getAllOrders() };
 
     case "registerUser": return registerUser(body.user);
@@ -167,11 +167,15 @@ function isUtrUnique(utr) {
   return true;
 }
 
-function updateStatusInSheet(orderId, status) {
+function updateStatusInSheet(orderId, status, paymentStatus) {
   const sheet = getOrdersSheet();
   const data = sheet.getDataRange().getValues();
   for (let row = 1; row < data.length; row++) {
-    if (String(data[row][0]) === String(orderId)) { sheet.getRange(row + 1, 11).setValue(status); break; }
+    if (String(data[row][0]) === String(orderId)) {
+      sheet.getRange(row + 1, 11).setValue(status); // Status column
+      if (paymentStatus) sheet.getRange(row + 1, 13).setValue(paymentStatus); // Payment Status column
+      break;
+    }
   }
 }
 

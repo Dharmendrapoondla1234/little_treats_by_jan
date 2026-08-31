@@ -828,7 +828,7 @@ function AdminOrdersPage({ orders, updateStatus }) {
               Decline
             </Button>
             <Button variant="primary" style={{ padding: "8px 14px", fontSize: 12.5 }} onClick={() => updateStatus(o.id, "Confirmed")}>
-              <Check size={14} /> Accept Order
+              <Check size={14} /> Verify Payment & Accept
             </Button>
           </div>
         ) : o.status === "Declined" ? (
@@ -1087,22 +1087,26 @@ export default function LittleTreatsApp() {
 
   // Pushes an order status change to the sheet too, so Admin decisions
   // (accept/decline/progress) stay reflected in your Google Sheet.
-  const syncStatusToSheet = async (orderId, status, orderRef) => {
+  const syncStatusToSheet = async (orderId, status, orderRef, paymentStatus) => {
     if (!sheetUrl) return;
     try {
-      const payload = encodeURIComponent(JSON.stringify({ action: "updateStatus", orderId, status, order: orderRef }));
+      const payload = encodeURIComponent(JSON.stringify({ action: "updateStatus", orderId, status, paymentStatus, order: orderRef }));
       await fetch(`${sheetUrl}?data=${payload}`, { method: "GET", mode: "no-cors" });
     } catch (e) {
       console.warn("Status sync skipped:", e);
     }
   };
 
+  // Accepting an order IS the manual payment-verification step: Admin has
+  // checked the UTR against their bank statement, so acceptance marks the
+  // payment as verified/Paid at the same time as confirming the order.
   const updateStatus = (id, status) => {
     const orderRef = orders.find((o) => o.id === id);
-    setOrders((os) => os.map((o) => (o.id === id ? { ...o, status } : o)));
-    syncStatusToSheet(id, status, orderRef);
+    const paymentStatus = status === "Confirmed" ? "Paid" : orderRef?.paymentStatus;
+    setOrders((os) => os.map((o) => (o.id === id ? { ...o, status, paymentStatus: paymentStatus || o.paymentStatus } : o)));
+    syncStatusToSheet(id, status, orderRef, paymentStatus);
     pushToast(
-      status === "Confirmed" ? `Order #${id} accepted — customer notified!` :
+      status === "Confirmed" ? `Order #${id} accepted, payment verified — customer notified!` :
       status === "Declined" ? `Order #${id} declined — customer notified` :
       `Order #${id} marked "${status}" — customer notified`
     );
