@@ -252,6 +252,7 @@ function Header({ page, setPage, user, logout, cartCount }) {
         {user?.role === "admin" ? (
           <div style={{ display: "flex", gap: 18, alignItems: "center" }}>
             <NavBtn id="admin" icon={<Settings size={18} />} label="Admin" />
+            <NavBtn id="admin-offers" icon={<Bell size={18} />} label="Offers" />
             <NavBtn id="admin-orders" icon={<ClipboardList size={18} />} label="Orders" />
             <button onClick={logout} style={{ background: "none", border: "none", cursor: "pointer", color: COLORS.cocoa }}>
               <LogOut size={18} />
@@ -290,7 +291,28 @@ function Header({ page, setPage, user, logout, cartCount }) {
 
 /* ---------------- Home ---------------- */
 
-function HomePage({ setPage }) {
+function OfferStrip({ offers }) {
+  if (!offers || offers.length === 0) return null;
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px,1fr))", gap: 14, margin: "24px 0 10px" }}>
+      {offers.filter((offer) => offer.active !== false).map((offer) => (
+        <div key={offer.id} style={{
+          display: "flex", alignItems: "center", gap: 12, background: offer.color || COLORS.blush,
+          borderRadius: 18, border: `2px solid ${COLORS.line}`, padding: 14,
+          boxShadow: "0 12px 26px rgba(198,41,107,.08)", overflow: "hidden"
+        }}>
+          {offer.image ? <img src={offer.image} alt={offer.title} style={{ width: 78, height: 78, objectFit: "cover", borderRadius: 14, border: `2px solid rgba(74,42,34,.08)` }} /> : <div style={{ width: 78, height: 78, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(255,255,255,.45)", fontSize: 28 }}>🎉</div>}
+          <div style={{ flex: 1 }}>
+            <div style={{ fontFamily: "Nunito, sans-serif", fontWeight: 900, fontSize: 13, color: COLORS.cocoa, textTransform: "uppercase", letterSpacing: 0.7 }}>{offer.title}</div>
+            <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 12.5, color: "#6B4A3E", marginTop: 4 }}>{offer.description}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function HomePage({ setPage, offers }) {
   const features = [
     { icon: "🌿", title: "Premium Ingredients", sub: "Made with the finest ingredients" },
     { icon: "💗", title: "Made With Love", sub: "Every bite baked with care" },
@@ -318,6 +340,8 @@ function HomePage({ setPage }) {
       </div>
 
       <Ribbon />
+
+      <OfferStrip offers={offers} />
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px,1fr))", gap: 14 }}>
         {features.map((f) => (
@@ -885,7 +909,24 @@ function AdminProductsPage({ products, addProduct, deleteProduct, updateProduct,
         ))}
       </div>
 
-      <div style={{ background: COLORS.blush, border: `2px solid ${COLORS.line}`, borderRadius: 16, padding: 16 }}>
+      <div style={{ background: "linear-gradient(135deg, #fff, #fff4f8)", border: `2px solid ${COLORS.line}`, borderRadius: 18, padding: 18, marginTop: 10 }}>
+        <div style={{ fontFamily: "Nunito, sans-serif", fontWeight: 900, color: COLORS.cocoa, marginBottom: 8 }}>What this helps the admin do</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px,1fr))", gap: 12 }}>
+          {[
+            "Manage product stock and pricing",
+            "Upload product photos quickly",
+            "Run seasonal offers and promotions",
+            "Verify UTR/payment proof before accepting orders",
+            "Track order updates and customer communication",
+          ].map((item) => (
+            <div key={item} style={{ background: "#fff", border: `2px solid ${COLORS.line}`, borderRadius: 12, padding: "10px 12px", fontFamily: "Nunito, sans-serif", fontSize: 12.5, fontWeight: 700, color: COLORS.cocoa }}>
+              ✓ {item}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ background: COLORS.blush, border: `2px solid ${COLORS.line}`, borderRadius: 16, padding: 16, marginTop: 24 }}>
         <div style={{ fontFamily: "Nunito, sans-serif", fontWeight: 800, color: COLORS.cocoa, marginBottom: 6 }}>Google Sheets Sync</div>
         <p style={{ fontFamily: "Nunito, sans-serif", fontSize: 12, color: "#6B4A3E", marginBottom: 10 }}>
           Paste your deployed Google Apps Script Web App URL here so every order is written straight to your Google Sheet and the customer gets an email notification.
@@ -894,6 +935,90 @@ function AdminProductsPage({ products, addProduct, deleteProduct, updateProduct,
         <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 11.5, color: sheetUrl ? "#2E8F55" : "#B08A7A", fontWeight: 700 }}>
           {sheetUrl ? "✓ Orders will sync to your Google Sheet." : "Not connected — orders are currently stored in this demo session only."}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function AdminOffersPage({ offers, addOffer, deleteOffer, updateOffer, callSheet, pushToast, sheetUrl }) {
+  const [form, setForm] = useState({ title: "", description: "", color: "#FBE3EA", image: "", active: true });
+  const [imgError, setImgError] = useState("");
+  const [uploading, setUploading] = useState(false);
+
+  const handleImage = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImgError("");
+
+    const previewReader = new FileReader();
+    previewReader.onload = () => setForm((f) => ({ ...f, image: previewReader.result }));
+    previewReader.readAsDataURL(file);
+
+    if (!sheetUrl) return;
+    setUploading(true);
+    try {
+      const compressed = await compressImageFile(file, 900, 0.7);
+      const url = await uploadImageInChunks(compressed, callSheet);
+      setForm((f) => ({ ...f, image: url }));
+      pushToast("Offer image uploaded");
+    } catch (err) {
+      setImgError(err.message || "Couldn't upload the offer image.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const submit = () => {
+    if (!form.title.trim()) return;
+    addOffer({ ...form, title: form.title.trim(), description: form.description.trim() || "Limited-time offer" });
+    setForm({ title: "", description: "", color: "#FBE3EA", image: "", active: true });
+  };
+
+  return (
+    <div style={{ maxWidth: 960, margin: "0 auto", padding: "24px 18px 60px" }}>
+      <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 24, color: COLORS.cocoa, marginBottom: 4 }}>Admin · Offers</h2>
+      <p style={{ fontFamily: "Nunito, sans-serif", fontSize: 13, color: "#8A6C5F", marginBottom: 18 }}>Add banners and promotions that appear immediately on the customer storefront.</p>
+
+      <div style={{ background: "#fff", border: `2px solid ${COLORS.line}`, borderRadius: 20, padding: 20, marginBottom: 24 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: 12 }}>
+          <Field label="Offer Title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Weekend Treat Bundle" />
+          <Field label="Card Color" value={form.color} onChange={(e) => setForm({ ...form, color: e.target.value })} type="color" />
+        </div>
+        <Field label="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Free shipping or 20% off selected cookies" />
+
+        <label style={{ display: "block", marginBottom: 14 }}>
+          <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, color: COLORS.cocoa, marginBottom: 6 }}>Offer Image</span>
+          <input type="file" accept="image/*" onChange={handleImage} disabled={uploading} style={{ fontFamily: "Nunito, sans-serif", fontSize: 13 }} />
+          {uploading && <div style={{ color: COLORS.mint, fontSize: 12, fontWeight: 700, marginTop: 6 }}>Uploading image...</div>}
+          {imgError && <div style={{ color: "#C6296B", fontSize: 12, fontWeight: 700, marginTop: 6 }}>{imgError}</div>}
+          {form.image && <img src={form.image} alt="offer preview" style={{ width: 110, height: 110, objectFit: "cover", borderRadius: 14, marginTop: 10, border: `2px solid ${COLORS.line}` }} />}
+        </label>
+
+        <label style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, fontFamily: "Nunito, sans-serif", fontWeight: 800, color: COLORS.cocoa }}>
+          <input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} />
+          Show this offer live on the customer page
+        </label>
+
+        <Button variant="primary" onClick={submit} disabled={uploading}><Plus size={15} /> Add Offer</Button>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
+        {offers.map((offer) => (
+          <div key={offer.id} style={{ background: offer.color || COLORS.blush, border: `2px solid ${COLORS.line}`, borderRadius: 18, padding: 14 }}>
+            {offer.image ? <img src={offer.image} alt={offer.title} style={{ width: "100%", height: 110, objectFit: "cover", borderRadius: 12, marginBottom: 10, border: `2px solid rgba(74,42,34,.08)` }} /> : <div style={{ height: 110, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32, background: "rgba(255,255,255,.32)", borderRadius: 12, marginBottom: 10 }}>🎉</div>}
+            <div style={{ fontFamily: "Nunito, sans-serif", fontWeight: 900, fontSize: 13, color: COLORS.cocoa, textTransform: "uppercase" }}>{offer.title}</div>
+            <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 12.5, color: "#6B4A3E", marginTop: 4 }}>{offer.description}</div>
+            <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: "Nunito, sans-serif", fontWeight: 800, fontSize: 11, color: COLORS.cocoa }}>
+                <input type="checkbox" checked={offer.active !== false} onChange={(e) => updateOffer(offer.id, { active: e.target.checked })} />
+                Live
+              </label>
+              <button onClick={() => deleteOffer(offer.id)} style={{ background: "none", border: "none", color: "#C6296B", cursor: "pointer", fontFamily: "Nunito, sans-serif", fontWeight: 900 }}>
+                Remove
+              </button>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -989,6 +1114,7 @@ export default function LittleTreatsApp() {
   const [products, setProducts] = useState(SEED_PRODUCTS);
   const [cart, setCart] = useState([]); // {id, qty}
   const [orders, setOrders] = useState([]);
+  const [offers, setOffers] = useState([]);
   const [lastOrder, setLastOrder] = useState(null);
   const [sheetUrl, setSheetUrl] = useState("https://script.google.com/macros/s/AKfycbyJ8aKilYXt-gNzcqy8sueXWuFJ-lFH5Udnm0jykuHU9yMwmnAp9lnG7wza2OUK302x/exec");
   const [toasts, setToasts] = useState([]);
@@ -1000,20 +1126,31 @@ export default function LittleTreatsApp() {
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3200);
   };
 
-  // Generic call to the Apps Script backend. Uses GET with the payload in a
-  // query param — Apps Script Web Apps always redirect internally, and
-  // browsers silently downgrade POST-through-redirect to GET. We read the
-  // JSON response back (no no-cors) since GET requests are eligible for
-  // CORS-readable responses from script.googleusercontent.com.
+  // Prefer JSON POST requests for reliability, especially for large screenshot
+  // uploads. Fall back to the older GET query-string approach if the backend or
+  // deployment only accepts the legacy route.
   const callSheet = async (payload) => {
     if (!sheetUrl) return { ok: false, error: "No Sheets URL configured." };
     try {
-      const url = `${sheetUrl}?data=${encodeURIComponent(JSON.stringify(payload))}`;
-      const res = await fetch(url);
-      return await res.json();
+      const res = await fetch(sheetUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const text = await res.text();
+      try {
+        return JSON.parse(text);
+      } catch {
+        return { ok: false, error: text || "Invalid response from the backend." };
+      }
     } catch (e) {
-      console.warn("Sheet call failed:", e);
-      return { ok: false, error: "Could not reach the Sheets backend." };
+      try {
+        const fallback = await fetch(`${sheetUrl}?data=${encodeURIComponent(JSON.stringify(payload))}`);
+        return await fallback.json();
+      } catch (fallbackError) {
+        console.warn("Sheet call failed:", fallbackError);
+        return { ok: false, error: "Could not reach the Sheets backend." };
+      }
     }
   };
 
@@ -1024,7 +1161,13 @@ export default function LittleTreatsApp() {
     (async () => {
       const result = await callSheet({ action: "getProducts" });
       if (result.ok && Array.isArray(result.products) && result.products.length) {
-        setProducts(result.products.map((p) => ({ ...p, image: "" })));
+        setProducts(result.products);
+      }
+    })();
+    (async () => {
+      const result = await callSheet({ action: "getOffers" });
+      if (result.ok && Array.isArray(result.offers)) {
+        setOffers(result.offers);
       }
     })();
     // Also load existing orders so Admin and customers see orders placed
@@ -1094,6 +1237,28 @@ export default function LittleTreatsApp() {
       return;
     }
     setProducts((arr) => [...arr, p]); pushToast(`${p.name} added to storefront`);
+  };
+
+  const addOffer = async (offer) => {
+    if (sheetUrl) {
+      const result = await callSheet({ action: "addOffer", offer });
+      if (result.ok) { setOffers((arr) => [...arr, { ...offer, id: result.id, active: offer.active !== false }]); pushToast(`${offer.title} added to homepage`); }
+      else pushToast(result.error || "Couldn't add offer.");
+      return;
+    }
+    setOffers((arr) => [...arr, { ...offer, id: "offer_" + Date.now(), active: offer.active !== false }]);
+    pushToast(`${offer.title} added to homepage`);
+  };
+
+  const deleteOffer = async (id) => {
+    setOffers((arr) => arr.filter((o) => o.id !== id));
+    if (sheetUrl) callSheet({ action: "deleteOffer", id });
+    pushToast("Offer removed");
+  };
+
+  const updateOffer = async (id, patch) => {
+    setOffers((arr) => arr.map((o) => (o.id === id ? { ...o, ...patch } : o)));
+    if (sheetUrl) callSheet({ action: "updateOffer", id, patch });
   };
 
   const deleteProduct = async (id) => {
@@ -1213,9 +1378,13 @@ export default function LittleTreatsApp() {
 
   let content;
   if (user?.role === "admin") {
-    content = page === "admin-orders"
-      ? <AdminOrdersPage orders={orders} updateStatus={updateStatus} />
-      : <AdminProductsPage products={products} addProduct={addProduct} deleteProduct={deleteProduct} updateProduct={updateProduct} sheetUrl={sheetUrl} setSheetUrl={setSheetUrl} callSheet={callSheet} pushToast={pushToast} />;
+    if (page === "admin-orders") {
+      content = <AdminOrdersPage orders={orders} updateStatus={updateStatus} />;
+    } else if (page === "admin-offers") {
+      content = <AdminOffersPage offers={offers} addOffer={addOffer} deleteOffer={deleteOffer} updateOffer={updateOffer} callSheet={callSheet} pushToast={pushToast} sheetUrl={sheetUrl} />;
+    } else {
+      content = <AdminProductsPage products={products} addProduct={addProduct} deleteProduct={deleteProduct} updateProduct={updateProduct} sheetUrl={sheetUrl} setSheetUrl={setSheetUrl} callSheet={callSheet} pushToast={pushToast} />;
+    }
   } else {
     switch (page) {
       case "products": content = <ProductsPage products={products} addToCart={addToCart} toast={pushToast} />; break;
@@ -1224,12 +1393,12 @@ export default function LittleTreatsApp() {
       case "confirmation": content = <ConfirmationPage lastOrder={lastOrder} setPage={setPage} />; break;
       case "orders": content = user ? <OrdersPage orders={orders} user={user} setPage={setPage} /> : <LoginPage setPage={setPage} loginUser={loginUser} registerUser={registerUser} resetPassword={resetPassword} authBusy={authBusy} />; break;
       case "login": content = <LoginPage setPage={setPage} loginUser={loginUser} registerUser={registerUser} resetPassword={resetPassword} authBusy={authBusy} />; break;
-      default: content = <HomePage setPage={setPage} />;
+      default: content = <HomePage setPage={setPage} offers={offers} />;
     }
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: COLORS.cream, fontFamily: "Nunito, sans-serif" }}>
+    <div style={{ minHeight: "100vh", background: "linear-gradient(180deg, #fff8f4 0%, #fff2ef 100%)", fontFamily: "Nunito, sans-serif" }}>
       <Header page={page} setPage={setPage} user={user} logout={logout} cartCount={cartCount} />
       {content}
       <Toast toasts={toasts} />

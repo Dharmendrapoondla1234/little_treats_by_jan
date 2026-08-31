@@ -39,7 +39,10 @@ const USERS_SHEET = "Users";
 const USERS_HEADERS = ["Email", "Name", "PasswordHash", "Salt", "Role", "CreatedAt", "Phone", "Address", "City", "Pincode"];
 
 const PRODUCTS_SHEET = "Products";
-const PRODUCTS_HEADERS = ["ID", "Name", "Price", "Weight", "Stock", "Tag", "Emoji", "Description", "Discount", "UpdatedAt"];
+const PRODUCTS_HEADERS = ["ID", "Name", "Price", "Weight", "Stock", "Tag", "Emoji", "Description", "Discount", "UpdatedAt", "ImageURL"];
+
+const OFFERS_SHEET = "Offers";
+const OFFERS_HEADERS = ["ID", "Title", "Description", "Color", "ImageURL", "Active", "CreatedAt"];
 
 const SEED_PRODUCTS = [
   ["p1", "Double Choco Bites", 249, "250g", 25, "Bestseller", "🍫", "Rich cocoa cookie bites rolled in dark chocolate chunks.", 15],
@@ -63,11 +66,13 @@ function doGet(e) {
   }
 }
 
-// Kept for compatibility — will not normally be reached from the browser
-// (see the note at the top of this file), but works if called some other way.
+// Modern browsers can send JSON in the body, which is much more reliable for
+// large uploads and back-end actions than stuffing everything into a URL.
 function doPost(e) {
   try {
-    const body = JSON.parse(e.postData.contents);
+    const raw = e && e.postData && e.postData.contents ? e.postData.contents : "";
+    const body = raw ? JSON.parse(raw) : {};
+    if (!body.action) return jsonOut({ ok: false, error: "No action in POST body." });
     return jsonOut(handleAction(body));
   } catch (err) {
     return jsonOut({ ok: false, error: String(err) });
@@ -101,6 +106,11 @@ function handleAction(body) {
     case "uploadImageChunk": return uploadImageChunk(body.uploadId, body.index, body.chunk);
     case "finalizeImageUpload": return finalizeImageUpload(body.uploadId, body.total, body.mimeType);
     case "deleteProduct": return deleteProduct(body.id);
+
+    case "getOffers": return { ok: true, offers: getAllOffers() };
+    case "addOffer": return addOffer(body.offer);
+    case "updateOffer": return updateOffer(body.id, body.patch);
+    case "deleteOffer": return deleteOffer(body.id);
 
     case "getRazorpayKey": return { ok: true, keyId: getScriptProp("RAZORPAY_KEY_ID") };
     case "createRazorpayOrder": return createRazorpayOrder(body.amount, body.receipt);
@@ -379,7 +389,7 @@ function getAllProducts() {
     products.push({
       id: String(row[0]), name: row[1], price: Number(row[2]), weight: row[3], unit: row[3],
       stock: Number(row[4]) || 0, tag: row[5] || "", emoji: row[6] || "🍪", desc: row[7] || "",
-      discountPercent: Number(row[8]) || 0, image: row[10] || "",
+      discountPercent: Number(row[8]) || 0, image: row[10] || row[11] || "",
     });
   }
   return products;
@@ -415,6 +425,70 @@ function deleteProduct(id) {
     if (String(data[r][0]) === String(id)) { sheet.deleteRow(r + 1); return { ok: true }; }
   }
   return { ok: false, error: "Product not found." };
+}
+
+/* ------------------------- Offers / promotions ------------------------- */
+
+function getOffersSheet() {
+  const sheet = getOrCreateSheet(OFFERS_SHEET, OFFERS_HEADERS);
+  return sheet;
+}
+
+function getAllOffers() {
+  const sheet = getOffersSheet();
+  const data = sheet.getDataRange().getValues();
+  const offers = [];
+  for (let r = 1; r < data.length; r++) {
+    const row = data[r];
+    offers.push({
+      id: String(row[0]),
+      title: row[1] || "Seasonal Offer",
+      description: row[2] || "",
+      color: row[3] || "#FBE3EA",
+      image: row[4] || "",
+      active: String(row[5]).toLowerCase() !== "false" && String(row[5]) !== "0",
+    });
+  }
+  return offers;
+}
+
+function addOffer(offer) {
+  const sheet = getOffersSheet();
+  const id = "offer_" + Date.now();
+  sheet.appendRow([
+    id,
+    offer.title || "Seasonal Offer",
+    offer.description || "",
+    offer.color || "#FBE3EA",
+    offer.image || "",
+    offer.active !== false ? "true" : "false",
+    new Date(),
+  ]);
+  return { ok: true, id };
+}
+
+function updateOffer(id, patch) {
+  const sheet = getOffersSheet();
+  const data = sheet.getDataRange().getValues();
+  const colIndex = { title: 2, description: 3, color: 4, image: 5, active: 6 };
+  for (let r = 1; r < data.length; r++) {
+    if (String(data[r][0]) === String(id)) {
+      Object.keys(patch).forEach(key => {
+        if (colIndex[key]) sheet.getRange(r + 1, colIndex[key]).setValue(patch[key]);
+      });
+      return { ok: true };
+    }
+  }
+  return { ok: false, error: "Offer not found." };
+}
+
+function deleteOffer(id) {
+  const sheet = getOffersSheet();
+  const data = sheet.getDataRange().getValues();
+  for (let r = 1; r < data.length; r++) {
+    if (String(data[r][0]) === String(id)) { sheet.deleteRow(r + 1); return { ok: true }; }
+  }
+  return { ok: false, error: "Offer not found." };
 }
 
 /* ------------------------- Payment screenshot upload (chunked) ------------------------- */
