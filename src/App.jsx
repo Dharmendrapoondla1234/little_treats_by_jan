@@ -46,6 +46,55 @@ function loadRazorpayScript() {
   });
 }
 
+// Compresses an image file to a small JPEG data URL via canvas, so payment
+// screenshots stay small enough to chunk-upload quickly and cheaply.
+function compressImageFile(file, maxDimension = 700, quality = 0.6) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Couldn't read the file."));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("Couldn't load the image."));
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > height && width > maxDimension) { height = Math.round((height * maxDimension) / width); width = maxDimension; }
+        else if (height > maxDimension) { width = Math.round((width * maxDimension) / height); height = maxDimension; }
+        const canvas = document.createElement("canvas");
+        canvas.width = width; canvas.height = height;
+        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+// Splits a base64 data URL into small chunks and uploads them one at a time
+// via GET (see the note in google-apps-script-backend.gs), then asks the
+// backend to reassemble and save them to Drive. Returns the final image URL.
+async function uploadImageInChunks(dataUrl, callSheet, onProgress) {
+  const [, mimeAndData] = dataUrl.split("data:");
+  const mimeType = mimeAndData.split(";")[0];
+  const base64 = dataUrl.split(",")[1];
+
+  const CHUNK_SIZE = 3000;
+  const chunks = [];
+  for (let i = 0; i < base64.length; i += CHUNK_SIZE) chunks.push(base64.slice(i, i + CHUNK_SIZE));
+
+  const uploadId = "img_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
+
+  for (let i = 0; i < chunks.length; i++) {
+    const result = await callSheet({ action: "uploadImageChunk", uploadId, index: i, chunk: chunks[i] });
+    if (!result.ok) throw new Error(result.error || "Upload failed partway through.");
+    if (onProgress) onProgress(i + 1, chunks.length);
+  }
+
+  const final = await callSheet({ action: "finalizeImageUpload", uploadId, total: chunks.length, mimeType });
+  if (!final.ok) throw new Error(final.error || "Couldn't finalize the upload.");
+  return final.url;
+}
+
 const COLORS = {
   magenta: "#C6296B",
   magentaDark: "#9E1E54",
@@ -193,7 +242,7 @@ function Header({ page, setPage, user, logout, cartCount }) {
     }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", maxWidth: 1000, margin: "0 auto" }}>
         <div onClick={() => setPage(user?.role === "admin" ? "admin" : "home")} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 22 }}>🧁</span>
+          <img src="/logo.jpg" alt="Little Treats by Jan" style={{ height: 40, width: 40, objectFit: "cover", borderRadius: "50%", border: `2px solid ${COLORS.marigold}` }} />
           <div>
             <div style={{ fontFamily: "'Playfair Display', serif", fontWeight: 800, fontSize: 18, color: COLORS.magenta, lineHeight: 1 }}>Little Treats</div>
             <div style={{ fontSize: 9.5, color: COLORS.cocoa, fontWeight: 700, letterSpacing: 1 }}>BY JAN</div>
@@ -255,6 +304,7 @@ function HomePage({ setPage }) {
         background: `radial-gradient(circle at 30% 20%, ${COLORS.blush}, ${COLORS.cream})`,
         border: `2px solid ${COLORS.line}`,
       }}>
+        <img src="/logo.jpg" alt="Little Treats by Jan" style={{ height: 90, width: 90, objectFit: "cover", borderRadius: "50%", border: `3px solid ${COLORS.marigold}`, margin: "0 auto 14px" }} />
         <Pill>Baked with Love</Pill>
         <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 36, margin: "14px 0 6px", color: COLORS.cocoa, lineHeight: 1.15 }}>
           Homemade goodness,<br /><span style={{ color: COLORS.magenta }}>made with love</span>
@@ -421,18 +471,20 @@ function CartPage({ cart, products, updateQty, removeFromCart, setPage, user }) 
 // TODO: replace with your real UPI ID once set up (shown to customers at checkout).
 const BUSINESS_UPI_ID = "9160360405@ibl";
 
-function CheckoutPage({ cart, products, placeOrder, setPage, user, pushToast }) {
+function CheckoutPage({ cart, products, placeOrder, setPage, user, pushToast, callSheet }) {
   const [address, setAddress] = useState({
     name: user?.name || "", phone: user?.phone || "", line1: user?.address || "", city: user?.city || "", pincode: user?.pincode || "",
   });
   const [utr, setUtr] = useState("");
-  const [screenshot, setScreenshot] = useState("");
+  const [screenshotPreview, setScreenshotPreview] = useState("");
+  const [screenshotFile, setScreenshotFile] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [progress, setProgress] = useState("");
   const [error, setError] = useState("");
 
   const items = cart.map((c) => ({ ...c, product: products.find((p) => p.id === c.id) })).filter((i) => i.product);
   const total = items.reduce((s, i) => s + effectivePrice(i.product) * i.qty, 0);
-  const canSubmit = address.name && address.phone && address.line1 && address.city && address.pincode && utr.trim().length >= 6;
+  const canSubmit = address.name && address.phone && address.line1 && address.city && address.pincode && utr.trim().length >= 6 && !!screenshotFile;
 
   const upiLink = `upi://pay?pa=${encodeURIComponent(BUSINESS_UPI_ID)}&pn=${encodeURIComponent("Little Treats by Jan")}&am=${total}&cu=INR`;
   const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(upiLink)}`;
@@ -440,23 +492,43 @@ function CheckoutPage({ cart, products, placeOrder, setPage, user, pushToast }) 
   const handleScreenshot = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setScreenshotFile(file);
     const reader = new FileReader();
-    reader.onload = () => setScreenshot(reader.result);
+    reader.onload = () => setScreenshotPreview(reader.result);
     reader.readAsDataURL(file);
   };
 
   const submit = async () => {
     setError("");
+    if (!screenshotFile) { setError("Please upload a screenshot of your payment — it's required to confirm your order."); return; }
+
     setSubmitting(true);
-    const result = await placeOrder(address, {
-      utr: utr.trim(),
-      paymentMethod: "UPI (Manual)",
-      paymentStatus: "Pending Verification",
-    });
-    setSubmitting(false);
-    if (!result?.ok) {
-      setError(result?.error || "Couldn't place order. Please try again.");
-      pushToast(result?.error || "Couldn't place order.");
+    try {
+      setProgress("Compressing screenshot...");
+      const compressed = await compressImageFile(screenshotFile);
+
+      setProgress("Uploading proof of payment...");
+      const screenshotUrl = await uploadImageInChunks(compressed, callSheet, (done, totalChunks) => {
+        setProgress(`Uploading proof of payment (${done}/${totalChunks})...`);
+      });
+
+      setProgress("Confirming order...");
+      const result = await placeOrder(address, {
+        utr: utr.trim(),
+        paymentMethod: "UPI (Manual)",
+        paymentStatus: "Pending Verification",
+        screenshotUrl,
+      });
+      if (!result?.ok) {
+        setError(result?.error || "Couldn't place order. Please try again.");
+        pushToast(result?.error || "Couldn't place order.");
+      }
+    } catch (e) {
+      setError(e.message || "Couldn't upload your payment proof. Please try again.");
+      pushToast("Upload failed — please try again.");
+    } finally {
+      setSubmitting(false);
+      setProgress("");
     }
   };
 
@@ -501,24 +573,25 @@ function CheckoutPage({ cart, products, placeOrder, setPage, user, pushToast }) 
         </div>
 
         <div style={{ marginTop: 16 }}>
-          <Field label="UTR / Transaction Reference Number" value={utr} onChange={(e) => setUtr(e.target.value)} placeholder="e.g. 402812345678" />
+          <Field label="UTR / Transaction Reference Number *" value={utr} onChange={(e) => setUtr(e.target.value)} placeholder="e.g. 402812345678" />
         </div>
 
         <label style={{ display: "block", marginBottom: 10 }}>
-          <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, color: COLORS.cocoa, marginBottom: 6 }}>Payment Screenshot (optional)</span>
+          <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, color: COLORS.cocoa, marginBottom: 6 }}>Payment Screenshot * (required)</span>
           <input type="file" accept="image/*" onChange={handleScreenshot} style={{ fontFamily: "Nunito, sans-serif", fontSize: 13 }} />
-          {screenshot && <img src={screenshot} alt="payment screenshot preview" style={{ width: 90, height: 90, objectFit: "cover", borderRadius: 10, marginTop: 8, border: `2px solid ${COLORS.line}` }} />}
+          {screenshotPreview && <img src={screenshotPreview} alt="payment screenshot preview" style={{ width: 90, height: 90, objectFit: "cover", borderRadius: 10, marginTop: 8, border: `2px solid ${COLORS.line}` }} />}
         </label>
 
         <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 11, color: "#B08A7A" }}>
-          Each UTR number can only be used once — make sure it's copied exactly from your UPI app's payment confirmation.
+          Each UTR number can only be used once, and a payment screenshot is required as proof — make sure the UTR is copied exactly from your UPI app's confirmation.
         </div>
       </div>
 
       {error && <div style={{ color: "#C6296B", fontFamily: "Nunito, sans-serif", fontSize: 12.5, fontWeight: 700, marginTop: 12 }}>{error}</div>}
+      {progress && !error && <div style={{ color: COLORS.mint, fontFamily: "Nunito, sans-serif", fontSize: 12.5, fontWeight: 700, marginTop: 12 }}>{progress}</div>}
 
       <Button full variant="primary" disabled={!canSubmit || submitting} style={{ marginTop: 16 }} onClick={submit}>
-        {submitting ? "Confirming..." : <><Check size={16} /> Confirm Order</>}
+        {submitting ? "Please wait..." : <><Check size={16} /> Confirm Order</>}
       </Button>
     </div>
   );
@@ -588,7 +661,7 @@ function LoginPage({ setPage, loginUser, registerUser, resetPassword, authBusy }
   return (
     <div style={{ maxWidth: 420, margin: "0 auto", padding: "40px 18px 60px" }}>
       <div style={{ textAlign: "center", marginBottom: 20 }}>
-        <div style={{ fontSize: 40 }}>🧁</div>
+        <img src="/logo.jpg" alt="Little Treats by Jan" style={{ height: 64, width: 64, objectFit: "cover", borderRadius: "50%", border: `3px solid ${COLORS.marigold}`, margin: "0 auto" }} />
         <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, color: COLORS.cocoa }}>
           {mode === "login" ? "Welcome back" : mode === "register" ? "Create your account" : "Reset your password"}
         </h2>
@@ -700,18 +773,34 @@ function OrdersPage({ orders, user, setPage }) {
 
 /* ---------------- Admin ---------------- */
 
-function AdminProductsPage({ products, addProduct, deleteProduct, updateProduct, sheetUrl, setSheetUrl }) {
+function AdminProductsPage({ products, addProduct, deleteProduct, updateProduct, sheetUrl, setSheetUrl, callSheet, pushToast }) {
   const [form, setForm] = useState({ name: "", price: "", weight: "", stock: "", discountPercent: "", emoji: "🍪", desc: "", tag: "", image: "" });
   const [imgError, setImgError] = useState("");
+  const [uploading, setUploading] = useState(false);
 
-  const handleImage = (e) => {
+  const handleImage = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 1.5 * 1024 * 1024) { setImgError("Image too large — please use one under 1.5MB."); return; }
     setImgError("");
-    const reader = new FileReader();
-    reader.onload = () => setForm((f) => ({ ...f, image: reader.result }));
-    reader.readAsDataURL(file);
+
+    // Local preview immediately, so the admin sees something right away.
+    const previewReader = new FileReader();
+    previewReader.onload = () => setForm((f) => ({ ...f, image: previewReader.result }));
+    previewReader.readAsDataURL(file);
+
+    if (!sheetUrl) return; // demo mode — preview only, not persisted (matches other demo-mode limits)
+
+    setUploading(true);
+    try {
+      const compressed = await compressImageFile(file, 800, 0.7);
+      const url = await uploadImageInChunks(compressed, callSheet);
+      setForm((f) => ({ ...f, image: url }));
+      pushToast("Photo uploaded!");
+    } catch (err) {
+      setImgError(err.message || "Couldn't upload the photo. Please try again.");
+    } finally {
+      setUploading(false);
+    }
   };
 
   const submit = () => {
@@ -747,12 +836,14 @@ function AdminProductsPage({ products, addProduct, deleteProduct, updateProduct,
 
         <label style={{ display: "block", marginBottom: 14 }}>
           <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, color: COLORS.cocoa, marginBottom: 6 }}>Product Photo (optional)</span>
-          <input type="file" accept="image/*" onChange={handleImage} style={{ fontFamily: "Nunito, sans-serif", fontSize: 13 }} />
+          <input type="file" accept="image/*" onChange={handleImage} disabled={uploading} style={{ fontFamily: "Nunito, sans-serif", fontSize: 13 }} />
+          {uploading && <div style={{ color: COLORS.mint, fontSize: 12, fontWeight: 700, marginTop: 6 }}>Uploading photo...</div>}
           {imgError && <div style={{ color: "#C6296B", fontSize: 12, fontWeight: 700, marginTop: 6 }}>{imgError}</div>}
           {form.image && <img src={form.image} alt="preview" style={{ width: 90, height: 90, objectFit: "cover", borderRadius: 12, marginTop: 8, border: `2px solid ${COLORS.line}` }} />}
+          {!sheetUrl && <div style={{ color: "#B08A7A", fontSize: 11, marginTop: 6 }}>Connect Google Sheets below to make photos persist permanently.</div>}
         </label>
 
-        <Button variant="primary" onClick={submit}><Plus size={15} /> Add Product</Button>
+        <Button variant="primary" onClick={submit} disabled={uploading}><Plus size={15} /> Add Product</Button>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px,1fr))", gap: 14, marginBottom: 28 }}>
@@ -851,10 +942,15 @@ function AdminOrdersPage({ orders, updateStatus }) {
       </div>
       <div style={{ marginTop: 6, fontWeight: 800, color: COLORS.magenta, fontFamily: "Nunito, sans-serif" }}>Total ₹{o.total}</div>
       {(o.utr || o.paymentMethod) && (
-        <div style={{ marginTop: 8, fontFamily: "Nunito, sans-serif", fontSize: 12, color: "#8A6C5F", display: "flex", flexWrap: "wrap", gap: 10 }}>
+        <div style={{ marginTop: 8, fontFamily: "Nunito, sans-serif", fontSize: 12, color: "#8A6C5F", display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
           {o.paymentMethod && <span>💳 {o.paymentMethod}</span>}
           {o.utr && <span>UTR: <b style={{ color: COLORS.cocoa }}>{o.utr}</b></span>}
           {o.paymentStatus && <Pill bg={o.paymentStatus === "Paid" ? "#E3F3F1" : "#FFF1D9"} color={o.paymentStatus === "Paid" ? COLORS.mint : "#B4720F"}>{o.paymentStatus}</Pill>}
+          {o.screenshotUrl && (
+            <a href={o.screenshotUrl} target="_blank" rel="noopener noreferrer" style={{ color: COLORS.magenta, fontWeight: 800, textDecoration: "underline" }}>
+              View payment screenshot
+            </a>
+          )}
         </div>
       )}
     </div>
@@ -1051,6 +1147,7 @@ export default function LittleTreatsApp() {
       paymentMethod: payment.paymentMethod || "",
       paymentStatus: payment.paymentStatus || "Unpaid",
       razorpayPaymentId: payment.razorpayPaymentId || "",
+      screenshotUrl: payment.screenshotUrl || "",
     };
 
     if (payment.utr && orders.some((o) => o.utr && o.utr.trim().toLowerCase() === payment.utr.trim().toLowerCase())) {
@@ -1118,12 +1215,12 @@ export default function LittleTreatsApp() {
   if (user?.role === "admin") {
     content = page === "admin-orders"
       ? <AdminOrdersPage orders={orders} updateStatus={updateStatus} />
-      : <AdminProductsPage products={products} addProduct={addProduct} deleteProduct={deleteProduct} updateProduct={updateProduct} sheetUrl={sheetUrl} setSheetUrl={setSheetUrl} />;
+      : <AdminProductsPage products={products} addProduct={addProduct} deleteProduct={deleteProduct} updateProduct={updateProduct} sheetUrl={sheetUrl} setSheetUrl={setSheetUrl} callSheet={callSheet} pushToast={pushToast} />;
   } else {
     switch (page) {
       case "products": content = <ProductsPage products={products} addToCart={addToCart} toast={pushToast} />; break;
       case "cart": content = <CartPage cart={cart} products={products} updateQty={updateQty} removeFromCart={removeFromCart} setPage={setPage} user={user} />; break;
-      case "checkout": content = user ? <CheckoutPage cart={cart} products={products} placeOrder={placeOrder} setPage={setPage} user={user} pushToast={pushToast} /> : <LoginPage setPage={setPage} loginUser={loginUser} registerUser={registerUser} resetPassword={resetPassword} authBusy={authBusy} />; break;
+      case "checkout": content = user ? <CheckoutPage cart={cart} products={products} placeOrder={placeOrder} setPage={setPage} user={user} pushToast={pushToast} callSheet={callSheet} /> : <LoginPage setPage={setPage} loginUser={loginUser} registerUser={registerUser} resetPassword={resetPassword} authBusy={authBusy} />; break;
       case "confirmation": content = <ConfirmationPage lastOrder={lastOrder} setPage={setPage} />; break;
       case "orders": content = user ? <OrdersPage orders={orders} user={user} setPage={setPage} /> : <LoginPage setPage={setPage} loginUser={loginUser} registerUser={registerUser} resetPassword={resetPassword} authBusy={authBusy} />; break;
       case "login": content = <LoginPage setPage={setPage} loginUser={loginUser} registerUser={registerUser} resetPassword={resetPassword} authBusy={authBusy} />; break;

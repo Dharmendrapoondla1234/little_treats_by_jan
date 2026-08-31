@@ -27,7 +27,13 @@ const ADMIN_EMAIL = "admin@littletreats.com";
 const ADMIN_PASSWORD = "admin123";
 
 const ORDERS_SHEET = "Orders";
-const ORDERS_HEADERS = ["Order ID", "Date", "Customer Name", "Customer Email", "Phone", "Address", "City", "Pincode", "Items", "Total (₹)", "Status", "Payment Method", "Payment Status", "Razorpay Payment ID", "UTR Number"];
+const ORDERS_HEADERS = ["Order ID", "Date", "Customer Name", "Customer Email", "Phone", "Address", "City", "Pincode", "Items", "Total (₹)", "Status", "Payment Method", "Payment Status", "Razorpay Payment ID", "UTR Number", "Screenshot URL"];
+
+const PAYMENTS_SHEET = "Payments";
+const PAYMENTS_HEADERS = ["Order ID", "Date", "Customer Name", "Customer Email", "UTR Number", "Amount (₹)", "Screenshot URL", "Verification Status"];
+
+const INVOICES_SHEET = "Invoices";
+const INVOICES_HEADERS = ["Invoice No", "Order ID", "Date Issued", "Customer Name", "Customer Email", "Total (₹)"];
 
 const USERS_SHEET = "Users";
 const USERS_HEADERS = ["Email", "Name", "PasswordHash", "Salt", "Role", "CreatedAt", "Phone", "Address", "City", "Pincode"];
@@ -77,7 +83,11 @@ function handleAction(body) {
       saveOrderToSheet(body.order);
       sendOrderReceivedEmail(body.order);
       return { ok: true };
-    case "updateStatus": updateStatusInSheet(body.orderId, body.status, body.paymentStatus); sendStatusEmail(body.order, body.status); return { ok: true };
+    case "updateStatus":
+      updateStatusInSheet(body.orderId, body.status, body.paymentStatus);
+      sendStatusEmail(body.order, body.status);
+      if (body.status === "Confirmed" && body.order) generateAndSendInvoice(body.order);
+      return { ok: true };
     case "getOrders": return { ok: true, orders: getAllOrders() };
 
     case "registerUser": return registerUser(body.user);
@@ -88,6 +98,8 @@ function handleAction(body) {
     case "getProducts": return { ok: true, products: getAllProducts() };
     case "addProduct": return addProduct(body.product);
     case "updateProduct": return updateProduct(body.id, body.patch);
+    case "uploadImageChunk": return uploadImageChunk(body.uploadId, body.index, body.chunk);
+    case "finalizeImageUpload": return finalizeImageUpload(body.uploadId, body.total, body.mimeType);
     case "deleteProduct": return deleteProduct(body.id);
 
     case "getRazorpayKey": return { ok: true, keyId: getScriptProp("RAZORPAY_KEY_ID") };
@@ -135,7 +147,7 @@ function getOrdersSheet() {
 // Upgrades an older Orders sheet (created before payment columns existed)
 // by appending the missing headers at the end, in ORDERS_HEADERS order.
 function migrateOrdersSheetIfNeeded(sheet) {
-  ["Payment Method", "Payment Status", "Razorpay Payment ID", "UTR Number"].forEach(col => {
+  ["Payment Method", "Payment Status", "Razorpay Payment ID", "UTR Number", "Screenshot URL"].forEach(col => {
     const current = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
     if (current.indexOf(col) === -1) {
       sheet.getRange(1, sheet.getLastColumn() + 1).setValue(col);
@@ -150,8 +162,28 @@ function saveOrderToSheet(order) {
     order.id, new Date(order.date), order.address.name, order.userEmail || "",
     order.address.phone, order.address.line1, order.address.city, order.address.pincode,
     itemsText, order.total, order.status,
-    order.paymentMethod || "", order.paymentStatus || "Unpaid", order.razorpayPaymentId || "", order.utr || ""
+    order.paymentMethod || "", order.paymentStatus || "Unpaid", order.razorpayPaymentId || "",
+    order.utr || "", order.screenshotUrl || ""
   ]);
+  savePaymentRecord(order);
+}
+
+// Mirrors payment-specific details into a dedicated Payments sheet — a
+// clean audit trail separate from the main Orders log, for reconciliation.
+function savePaymentRecord(order) {
+  const sheet = getOrCreateSheet(PAYMENTS_SHEET, PAYMENTS_HEADERS);
+  sheet.appendRow([
+    order.id, new Date(order.date), order.address.name, order.userEmail || "",
+    order.utr || "", order.total, order.screenshotUrl || "", "Recorded"
+  ]);
+}
+
+function markPaymentVerified(orderId) {
+  const sheet = getOrCreateSheet(PAYMENTS_SHEET, PAYMENTS_HEADERS);
+  const data = sheet.getDataRange().getValues();
+  for (let r = 1; r < data.length; r++) {
+    if (String(data[r][0]) === String(orderId)) { sheet.getRange(r + 1, 8).setValue("Verified"); break; }
+  }
 }
 
 // Scans the UTR column for an existing, non-empty match (case-insensitive).
@@ -177,6 +209,7 @@ function updateStatusInSheet(orderId, status, paymentStatus) {
       break;
     }
   }
+  if (status === "Confirmed") markPaymentVerified(orderId);
 }
 
 function getAllOrders() {
@@ -189,7 +222,8 @@ function getAllOrders() {
       id: String(row[0]), date: row[1] instanceof Date ? row[1].toISOString() : String(row[1]),
       address: { name: row[2], phone: row[4], line1: row[5], city: row[6], pincode: row[7] },
       userEmail: row[3], itemsText: row[8], total: row[9], status: row[10],
-      paymentMethod: row[11] || "", paymentStatus: row[12] || "Unpaid", razorpayPaymentId: row[13] || "", utr: row[14] || "",
+      paymentMethod: row[11] || "", paymentStatus: row[12] || "Unpaid", razorpayPaymentId: row[13] || "",
+      utr: row[14] || "", screenshotUrl: row[15] || "",
     });
   }
   return orders;
@@ -309,25 +343,30 @@ function getProductsSheet() {
   return sheet;
 }
 
-// Upgrades an older Products sheet (created before the Discount column
-// existed) by inserting "Discount" in the correct position — right before
-// "UpdatedAt" — since the rest of this file reads columns by fixed
-// position. Existing rows get a default of 0 (no discount).
+// Upgrades an older Products sheet by inserting any headers it's missing
+// in the correct fixed positions, since the rest of this file reads columns
+// by index. "Discount" goes right before "UpdatedAt"; "ImageURL" is
+// appended at the very end (safe to just append, nothing reads past it by
+// position except this same function going forward).
 function migrateProductsSheetIfNeeded(sheet) {
-  const lastCol = sheet.getLastColumn();
-  const headerRow = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
-  if (headerRow.indexOf("Discount") !== -1) return; // already up to date
+  let headerRow = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
 
-  const updatedAtIdx = headerRow.indexOf("UpdatedAt"); // 0-based
-  const insertBeforeCol = updatedAtIdx >= 0 ? updatedAtIdx + 1 : lastCol + 1; // 1-based
-  sheet.insertColumnBefore(insertBeforeCol);
-  sheet.getRange(1, insertBeforeCol).setValue("Discount");
+  if (headerRow.indexOf("Discount") === -1) {
+    const updatedAtIdx = headerRow.indexOf("UpdatedAt");
+    const insertBeforeCol = updatedAtIdx >= 0 ? updatedAtIdx + 1 : sheet.getLastColumn() + 1;
+    sheet.insertColumnBefore(insertBeforeCol);
+    sheet.getRange(1, insertBeforeCol).setValue("Discount");
+    const lastRow = sheet.getLastRow();
+    if (lastRow > 1) {
+      const defaults = [];
+      for (let i = 0; i < lastRow - 1; i++) defaults.push([0]);
+      sheet.getRange(2, insertBeforeCol, lastRow - 1, 1).setValues(defaults);
+    }
+  }
 
-  const lastRow = sheet.getLastRow();
-  if (lastRow > 1) {
-    const defaults = [];
-    for (let i = 0; i < lastRow - 1; i++) defaults.push([0]);
-    sheet.getRange(2, insertBeforeCol, lastRow - 1, 1).setValues(defaults);
+  headerRow = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  if (headerRow.indexOf("ImageURL") === -1) {
+    sheet.getRange(1, sheet.getLastColumn() + 1).setValue("ImageURL");
   }
 }
 
@@ -340,7 +379,7 @@ function getAllProducts() {
     products.push({
       id: String(row[0]), name: row[1], price: Number(row[2]), weight: row[3], unit: row[3],
       stock: Number(row[4]) || 0, tag: row[5] || "", emoji: row[6] || "🍪", desc: row[7] || "",
-      discountPercent: Number(row[8]) || 0, image: "",
+      discountPercent: Number(row[8]) || 0, image: row[10] || "",
     });
   }
   return products;
@@ -349,14 +388,14 @@ function getAllProducts() {
 function addProduct(p) {
   const sheet = getProductsSheet();
   const id = "p" + Date.now();
-  sheet.appendRow([id, p.name, Number(p.price) || 0, p.weight || "", Number(p.stock) || 0, p.tag || "", p.emoji || "🍪", p.desc || "", Number(p.discountPercent) || 0, new Date()]);
+  sheet.appendRow([id, p.name, Number(p.price) || 0, p.weight || "", Number(p.stock) || 0, p.tag || "", p.emoji || "🍪", p.desc || "", Number(p.discountPercent) || 0, new Date(), p.image || ""]);
   return { ok: true, id };
 }
 
 function updateProduct(id, patch) {
   const sheet = getProductsSheet();
   const data = sheet.getDataRange().getValues();
-  const colIndex = { name: 2, price: 3, weight: 4, stock: 5, tag: 6, emoji: 7, desc: 8, discountPercent: 9 };
+  const colIndex = { name: 2, price: 3, weight: 4, stock: 5, tag: 6, emoji: 7, desc: 8, discountPercent: 9, image: 11 };
   for (let r = 1; r < data.length; r++) {
     if (String(data[r][0]) === String(id)) {
       Object.keys(patch).forEach(key => {
@@ -376,6 +415,105 @@ function deleteProduct(id) {
     if (String(data[r][0]) === String(id)) { sheet.deleteRow(r + 1); return { ok: true }; }
   }
   return { ok: false, error: "Product not found." };
+}
+
+/* ------------------------- Payment screenshot upload (chunked) ------------------------- */
+// Browsers can only reliably reach this backend via GET (see the note at
+// the top of this file), and a real photo is far too big for one URL. The
+// client compresses the image, splits the base64 data into small chunks,
+// and uploads them one request at a time; this reassembles them here and
+// saves the result to Google Drive, returning a permanent, small URL that
+// safely fits in the Orders/Payments sheets.
+
+function uploadImageChunk(uploadId, index, chunk) {
+  if (!uploadId || chunk === undefined) return { ok: false, error: "Missing chunk data." };
+  CacheService.getScriptCache().put(uploadId + "_" + index, chunk, 21600); // 6 hour expiry
+  return { ok: true };
+}
+
+function finalizeImageUpload(uploadId, total, mimeType) {
+  try {
+    const cache = CacheService.getScriptCache();
+    let full = "";
+    for (let i = 0; i < total; i++) {
+      const part = cache.get(uploadId + "_" + i);
+      if (part === null) return { ok: false, error: "Upload incomplete — a chunk was lost. Please try again." };
+      full += part;
+    }
+    const bytes = Utilities.base64Decode(full);
+    const blob = Utilities.newBlob(bytes, mimeType || "image/jpeg", uploadId + ".jpg");
+
+    const folder = getOrCreateDriveFolder("Little Treats Payment Screenshots");
+    const file = folder.createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    const url = "https://drive.google.com/uc?id=" + file.getId();
+
+    for (let i = 0; i < total; i++) cache.remove(uploadId + "_" + i);
+    return { ok: true, url: url };
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+function getOrCreateDriveFolder(name) {
+  const folders = DriveApp.getFoldersByName(name);
+  return folders.hasNext() ? folders.next() : DriveApp.createFolder(name);
+}
+
+/* ------------------------- Invoices ------------------------- */
+
+function getNextInvoiceNumber(sheet) {
+  const lastRow = sheet.getLastRow();
+  return "INV-" + String(lastRow).padStart(5, "0");
+}
+
+function generateAndSendInvoice(order) {
+  if (!order || !order.userEmail) return;
+  try {
+    const sheet = getOrCreateSheet(INVOICES_SHEET, INVOICES_HEADERS);
+    const invoiceNo = getNextInvoiceNumber(sheet);
+    const dateStr = new Date().toLocaleDateString("en-IN");
+
+    const itemRows = (order.items || []).map(i =>
+      "<tr><td style='padding:6px 10px;border-bottom:1px solid #eee'>" + i.name + "</td>" +
+      "<td style='padding:6px 10px;border-bottom:1px solid #eee;text-align:center'>" + i.qty + "</td>" +
+      "<td style='padding:6px 10px;border-bottom:1px solid #eee;text-align:right'>₹" + i.price + "</td>" +
+      "<td style='padding:6px 10px;border-bottom:1px solid #eee;text-align:right'>₹" + (i.price * i.qty) + "</td></tr>"
+    ).join("");
+
+    const html =
+      "<div style='font-family:sans-serif;color:#4A2A22;max-width:600px;margin:0 auto'>" +
+      "<h2 style='color:#C6296B;margin-bottom:0'>Little Treats by Jan</h2>" +
+      "<p style='margin-top:2px;color:#8A6C5F'>Homemade cookies & biscuits</p>" +
+      "<hr style='border:none;border-top:2px solid #F0D9C8'/>" +
+      "<h3>Invoice " + invoiceNo + "</h3>" +
+      "<p>Order #" + order.id + " &middot; " + dateStr + "</p>" +
+      "<p><b>Billed to:</b> " + order.address.name + "<br/>" + order.address.line1 + ", " + order.address.city + " - " + order.address.pincode + "<br/>" + (order.userEmail || "") + " &middot; " + order.address.phone + "</p>" +
+      "<table style='width:100%;border-collapse:collapse;margin-top:12px'>" +
+      "<tr style='background:#FBE3EA'><th style='padding:6px 10px;text-align:left'>Item</th><th style='padding:6px 10px'>Qty</th><th style='padding:6px 10px;text-align:right'>Price</th><th style='padding:6px 10px;text-align:right'>Subtotal</th></tr>" +
+      itemRows +
+      "</table>" +
+      "<div style='text-align:right;margin-top:10px;font-size:16px'><b>Total: ₹" + order.total + "</b></div>" +
+      "<p style='margin-top:6px;color:#8A6C5F'>Payment: " + (order.paymentMethod || "UPI") + (order.utr ? " &middot; UTR: " + order.utr : "") + "</p>" +
+      "<hr style='border:none;border-top:2px solid #F0D9C8'/>" +
+      "<p style='color:#8A6C5F;font-size:13px'>Thank you for supporting homemade! 💗</p>" +
+      "</div>";
+
+    const pdf = Utilities.newBlob(html, "text/html", "invoice.html").getAs("application/pdf");
+    pdf.setName(invoiceNo + ".pdf");
+
+    MailApp.sendEmail({
+      to: order.userEmail,
+      subject: "Little Treats by Jan — Invoice " + invoiceNo + " (Order #" + order.id + ")",
+      htmlBody: "<p>Hi " + order.address.name + ",</p><p>Your order #" + order.id + " is confirmed! Please find your invoice attached.</p><p style='color:#8A6C5F'>Thank you for supporting homemade! 💗</p>",
+      attachments: [pdf],
+    });
+
+    sheet.appendRow([invoiceNo, order.id, new Date(), order.address.name, order.userEmail, order.total]);
+  } catch (err) {
+    // Invoice generation failure should never block the order-status update itself.
+    console.error("Invoice generation failed: " + err);
+  }
 }
 
 /* ------------------------- Razorpay (UPI) ------------------------- */
@@ -481,6 +619,8 @@ function setupSheet() {
   getOrdersSheet();
   getUsersSheet();
   getProductsSheet();
+  getOrCreateSheet(PAYMENTS_SHEET, PAYMENTS_HEADERS);
+  getOrCreateSheet(INVOICES_SHEET, INVOICES_HEADERS);
 }
 
 function testSetup() {
