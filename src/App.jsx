@@ -508,7 +508,8 @@ function CheckoutPage({ cart, products, placeOrder, setPage, user, pushToast, ca
 
   const items = cart.map((c) => ({ ...c, product: products.find((p) => p.id === c.id) })).filter((i) => i.product);
   const total = items.reduce((s, i) => s + effectivePrice(i.product) * i.qty, 0);
-  const canSubmit = address.name && address.phone && address.line1 && address.city && address.pincode && utr.trim().length >= 6 && !!screenshotFile;
+  const utrValue = String(utr || "").trim();
+  const canSubmit = address.name && address.phone && address.line1 && address.city && address.pincode && utrValue.length >= 6 && !!screenshotFile;
 
   const upiLink = `upi://pay?pa=${encodeURIComponent(BUSINESS_UPI_ID)}&pn=${encodeURIComponent("Little Treats by Jan")}&am=${total}&cu=INR`;
   const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(upiLink)}`;
@@ -538,7 +539,7 @@ function CheckoutPage({ cart, products, placeOrder, setPage, user, pushToast, ca
 
       setProgress("Confirming order...");
       const result = await placeOrder(address, {
-        utr: utr.trim(),
+        utr: String(utr || "").trim(),
         paymentMethod: "UPI (Manual)",
         paymentStatus: "Pending Verification",
         screenshotUrl,
@@ -1126,18 +1127,15 @@ export default function LittleTreatsApp() {
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3200);
   };
 
-  // Prefer JSON POST requests for reliability, especially for large screenshot
-  // uploads. Fall back to the older GET query-string approach if the backend or
-  // deployment only accepts the legacy route.
+  // Google Apps Script Web Apps are reliable for browser calls when using the
+  // legacy GET + data query-string pattern. POST requests with JSON bodies trigger
+  // CORS preflight failures for this deployment type, so large uploads and product
+  // syncing must stay on the GET route.
   const callSheet = async (payload) => {
     if (!sheetUrl) return { ok: false, error: "No Sheets URL configured." };
     try {
-      const res = await fetch(sheetUrl, {
-        method: "POST",
-        mode: "cors",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify(payload),
-      });
+      const url = `${sheetUrl}?data=${encodeURIComponent(JSON.stringify(payload))}`;
+      const res = await fetch(url);
       const text = await res.text();
       try {
         return JSON.parse(text);
@@ -1145,18 +1143,8 @@ export default function LittleTreatsApp() {
         return { ok: false, error: text || "Invalid response from the backend." };
       }
     } catch (e) {
-      try {
-        const fallback = await fetch(`${sheetUrl}?data=${encodeURIComponent(JSON.stringify(payload))}`, { mode: "cors" });
-        const fallbackText = await fallback.text();
-        try {
-          return JSON.parse(fallbackText);
-        } catch {
-          return { ok: false, error: fallbackText || "Could not reach the Sheets backend." };
-        }
-      } catch (fallbackError) {
-        console.warn("Sheet call failed:", fallbackError);
-        return { ok: false, error: "Could not reach the Sheets backend." };
-      }
+      console.warn("Sheet call failed:", e);
+      return { ok: false, error: "Could not reach the Sheets backend." };
     }
   };
 
@@ -1314,14 +1302,15 @@ export default function LittleTreatsApp() {
       items, total, address,
       status: "Pending",
       date: new Date().toISOString(),
-      utr: payment.utr || "",
+      utr: String(payment.utr || "").trim(),
       paymentMethod: payment.paymentMethod || "",
       paymentStatus: payment.paymentStatus || "Unpaid",
       razorpayPaymentId: payment.razorpayPaymentId || "",
       screenshotUrl: payment.screenshotUrl || "",
     };
 
-    if (payment.utr && orders.some((o) => o.utr && o.utr.trim().toLowerCase() === payment.utr.trim().toLowerCase())) {
+    const utrCheck = String(payment.utr || "").trim();
+    if (utrCheck && orders.some((o) => String(o.utr || "").trim().toLowerCase() === utrCheck.toLowerCase())) {
       const msg = "This UTR/reference number has already been used for another order.";
       return { ok: false, error: msg };
     }
