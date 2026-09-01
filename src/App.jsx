@@ -1,109 +1,27 @@
-import React, { useState, useMemo, useRef, useEffect } from "react";
-import {
-  ShoppingCart, User, LogOut, Plus, Minus, Trash2, Check,
-  MapPin, Package, Settings, Home, Heart, Instagram, Phone,
-  ChevronLeft, ChevronRight, Star, Lock, Mail, Sparkles, ClipboardList, Bell,
-  X, ZoomIn, ImagePlus
-} from "lucide-react";
-import { COLORS } from "./theme";
-import { Button } from "./components/ui/Button";
-import { Pill } from "./components/ui/Pill";
-import { Field } from "./components/ui/Field";
-import { ProductCard } from "./components/products/ProductCard";
-import { ProductImage } from "./components/products/ProductImage";
-import { effectivePrice, getProductImages, normalizeImageUrl } from "./utils/productUtils";
-
-/* ---------------------------------------------------------------
-   LITTLE TREATS BY JAN — storefront + admin
-   Palette: magenta #C6296B, marigold #E8A33D, cocoa #4A2A22,
-            cream #FCF1E6, blush #FBE3EA, sage-mint accent #2E8F8B
-   Type: display = 'Playfair Display' (headline warmth),
-         body = 'Nunito' (rounded, friendly bakery voice)
-   Signature: hand-tied "ribbon" divider + a cookie-bite progress
-              tracker on the order flow (bite marks fill in as
-              you move from Cart -> Address -> Confirm)
------------------------------------------------------------------ */
+﻿import React, { useState, useMemo, useEffect } from "react";
+import { Header } from "./components/layout/Header";
+import { Toast } from "./components/ui/Toast";
+import { ProductGalleryModal } from "./components/products/ProductGalleryModal";
+import { effectivePrice, normalizeImageUrl } from "./utils/productUtils";
+import { HomePage } from "./pages/HomePage";
+import { ProductsPage } from "./pages/ProductsPage";
+import { CartPage } from "./pages/CartPage";
+import { CheckoutPage } from "./pages/CheckoutPage";
+import { ConfirmationPage } from "./pages/ConfirmationPage";
+import { LoginPage } from "./pages/LoginPage";
+import { OrdersPage } from "./pages/OrdersPage";
+import { AdminProductsPage } from "./pages/admin/AdminProductsPage";
+import { AdminOffersPage } from "./pages/admin/AdminOffersPage";
+import { AdminOrdersPage } from "./pages/admin/AdminOrdersPage";
 
 const FONT_LINK_ID = "lt-fonts";
 if (typeof document !== "undefined" && !document.getElementById(FONT_LINK_ID)) {
   const link = document.createElement("link");
   link.id = FONT_LINK_ID;
   link.rel = "stylesheet";
-  link.href =
-    "https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800&family=Nunito:wght@400;600;700;800&display=swap";
+  link.href = "https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800&family=Nunito:wght@400;600;700;800&display=swap";
   document.head.appendChild(link);
 }
-
-// Loads the Razorpay Checkout widget script once, on demand (only when the
-// customer is actually about to pay), and resolves once it's ready to use.
-function loadRazorpayScript() {
-  return new Promise((resolve, reject) => {
-    if (window.Razorpay) return resolve(true);
-    const existing = document.getElementById("razorpay-checkout-js");
-    if (existing) {
-      existing.addEventListener("load", () => resolve(true));
-      existing.addEventListener("error", () => reject(new Error("Failed to load Razorpay script")));
-      return;
-    }
-    const script = document.createElement("script");
-    script.id = "razorpay-checkout-js";
-    script.src = "https://checkout.razorpay.com/v1/checkout.js";
-    script.onload = () => resolve(true);
-    script.onerror = () => reject(new Error("Failed to load Razorpay script"));
-    document.body.appendChild(script);
-  });
-}
-
-// Compresses an image file to a small JPEG data URL via canvas, so payment
-// screenshots stay small enough to chunk-upload quickly and cheaply.
-function compressImageFile(file, maxDimension = 700, quality = 0.6) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error("Couldn't read the file."));
-    reader.onload = () => {
-      const img = new Image();
-      img.onerror = () => reject(new Error("Couldn't load the image."));
-      img.onload = () => {
-        let { width, height } = img;
-        if (width > height && width > maxDimension) { height = Math.round((height * maxDimension) / width); width = maxDimension; }
-        else if (height > maxDimension) { width = Math.round((width * maxDimension) / height); height = maxDimension; }
-        const canvas = document.createElement("canvas");
-        canvas.width = width; canvas.height = height;
-        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", quality));
-      };
-      img.src = reader.result;
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
-// Splits a base64 data URL into small chunks and uploads them one at a time
-// via GET (see the note in google-apps-script-backend.gs), then asks the
-// backend to reassemble and save them to Drive. Returns the final image URL.
-async function uploadImageInChunks(dataUrl, callSheet, onProgress) {
-  const [, mimeAndData] = dataUrl.split("data:");
-  const mimeType = mimeAndData.split(";")[0];
-  const base64 = dataUrl.split(",")[1];
-
-  const CHUNK_SIZE = 3000;
-  const chunks = [];
-  for (let i = 0; i < base64.length; i += CHUNK_SIZE) chunks.push(base64.slice(i, i + CHUNK_SIZE));
-
-  const uploadId = "img_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
-
-  for (let i = 0; i < chunks.length; i++) {
-    const result = await callSheet({ action: "uploadImageChunk", uploadId, index: i, chunk: chunks[i] });
-    if (!result.ok) throw new Error(result.error || "Upload failed partway through.");
-    if (onProgress) onProgress(i + 1, chunks.length);
-  }
-
-  const final = await callSheet({ action: "finalizeImageUpload", uploadId, total: chunks.length, mimeType });
-  if (!final.ok) throw new Error(final.error || "Couldn't finalize the upload.");
-  return final.url;
-}
-
-/* ---------------- Seed data ---------------- */
 
 const SEED_PRODUCTS = [
   { id: "p1", name: "Double Choco Bites", price: 249, unit: "250g jar", weight: "250g", stock: 25, tag: "Bestseller", emoji: "🍫", image: "", discountPercent: 15, desc: "Rich cocoa cookie bites rolled in dark chocolate chunks." },
@@ -114,1274 +32,15 @@ const SEED_PRODUCTS = [
   { id: "p6", name: "Honey Oat Biscuits", price: 219, unit: "250g jar", weight: "250g", stock: 20, tag: "", emoji: "🍪", image: "", discountPercent: 0, desc: "Wholesome oats sweetened with honey, lightly crisp." },
 ];
 
-// Rounds to the nearest rupee for a clean displayed/charged price.
 const ADMIN_EMAIL = "admin@littletreats.com";
 const ADMIN_PASSWORD = "admin123";
-
-/* ---------------- Small UI atoms ---------------- */
-
-function Ribbon() {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "18px 0" }}>
-      <div style={{ flex: 1, height: 2, background: `linear-gradient(90deg, transparent, ${COLORS.marigold})` }} />
-      <Heart size={16} color={COLORS.magenta} fill={COLORS.magenta} />
-      <div style={{ flex: 1, height: 2, background: `linear-gradient(90deg, ${COLORS.marigold}, transparent)` }} />
-    </div>
-  );
-}
-
-function Toast({ toasts }) {
-  return (
-    <div style={{ position: "fixed", top: 16, right: 16, zIndex: 999, display: "flex", flexDirection: "column", gap: 10 }}>
-      {toasts.map((t) => (
-        <div key={t.id} style={{
-          background: "#fff", borderRadius: 14, padding: "12px 16px", minWidth: 240,
-          boxShadow: "0 12px 30px rgba(74,42,34,.2)", border: `2px solid ${COLORS.line}`,
-          display: "flex", alignItems: "center", gap: 10, animation: "lt-in .25s ease",
-        }}>
-          <Bell size={18} color={COLORS.magenta} />
-          <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 13.5, color: COLORS.cocoa, fontWeight: 700 }}>{t.msg}</div>
-        </div>
-      ))}
-      <style>{`@keyframes lt-in{from{opacity:0; transform:translateX(20px)} to{opacity:1; transform:translateX(0)}}`}</style>
-    </div>
-  );
-}
-
-/* ---------------- Header ---------------- */
-
-function Header({ page, setPage, user, logout, cartCount }) {
-  const NavBtn = ({ id, icon, label }) => (
-    <button onClick={() => setPage(id)} style={{
-      display: "flex", flexDirection: "column", alignItems: "center", gap: 2, background: "none", border: "none",
-      cursor: "pointer", color: page === id ? COLORS.magenta : COLORS.cocoa, fontFamily: "Nunito, sans-serif",
-      fontWeight: 800, fontSize: 11, padding: "4px 8px", position: "relative",
-    }}>
-      {icon}
-      {label}
-      {id === "cart" && cartCount > 0 && (
-        <span style={{
-          position: "absolute", top: -4, right: 0, background: COLORS.magenta, color: "#fff",
-          borderRadius: 999, fontSize: 9.5, fontWeight: 800, minWidth: 16, height: 16,
-          display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px",
-        }}>{cartCount}</span>
-      )}
-    </button>
-  );
-
-  return (
-    <div style={{
-      position: "sticky", top: 0, zIndex: 50, background: "rgba(252,241,230,.92)", backdropFilter: "blur(6px)",
-      borderBottom: `2px solid ${COLORS.line}`, padding: "10px 16px",
-    }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", maxWidth: 1000, margin: "0 auto" }}>
-        <div onClick={() => setPage(user?.role === "admin" ? "admin" : "home")} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
-          <img src="/logo.jpg" alt="Little Treats by Jan" style={{ height: 40, width: 40, objectFit: "cover", borderRadius: "50%", border: `2px solid ${COLORS.marigold}` }} />
-          <div>
-            <div style={{ fontFamily: "'Playfair Display', serif", fontWeight: 800, fontSize: 18, color: COLORS.magenta, lineHeight: 1 }}>Little Treats</div>
-            <div style={{ fontSize: 9.5, color: COLORS.cocoa, fontWeight: 700, letterSpacing: 1 }}>BY JAN</div>
-          </div>
-        </div>
-
-        {user?.role === "admin" ? (
-          <div style={{ display: "flex", gap: 18, alignItems: "center" }}>
-            <NavBtn id="admin" icon={<Settings size={18} />} label="Admin" />
-            <NavBtn id="admin-offers" icon={<Bell size={18} />} label="Offers" />
-            <NavBtn id="admin-orders" icon={<ClipboardList size={18} />} label="Orders" />
-            <button onClick={logout} style={{ background: "none", border: "none", cursor: "pointer", color: COLORS.cocoa }}>
-              <LogOut size={18} />
-            </button>
-          </div>
-        ) : (
-          <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
-            <NavBtn id="home" icon={<Home size={18} />} label="Home" />
-            <NavBtn id="products" icon={<Sparkles size={18} />} label="Shop" />
-            <NavBtn id="cart" icon={<ShoppingCart size={18} />} label="Cart" />
-            {user ? (
-              <>
-                <NavBtn id="orders" icon={<Package size={18} />} label="Orders" />
-                <button onClick={logout} title="Log out" style={{ background: "none", border: "none", cursor: "pointer", color: COLORS.cocoa }}>
-                  <LogOut size={18} />
-                </button>
-              </>
-            ) : (
-              <>
-                <NavBtn id="login" icon={<User size={18} />} label="Login" />
-                <button onClick={() => setPage("login")} title="Admin Login" style={{
-                  display: "flex", flexDirection: "column", alignItems: "center", gap: 2, background: "none", border: "none",
-                  cursor: "pointer", color: "#8A6C5F", fontFamily: "Nunito, sans-serif", fontWeight: 800, fontSize: 11, padding: "4px 8px",
-                }}>
-                  <Settings size={18} />
-                  Admin
-                </button>
-              </>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ---------------- Home ---------------- */
-
-function OfferStrip({ offers }) {
-  if (!offers || offers.length === 0) return null;
-  return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px,1fr))", gap: 14, margin: "24px 0 10px" }}>
-      {offers.filter((offer) => offer.active !== false).map((offer) => (
-        <div key={offer.id} style={{
-          display: "flex", alignItems: "center", gap: 12, background: offer.color || COLORS.blush,
-          borderRadius: 18, border: `2px solid ${COLORS.line}`, padding: 14,
-          boxShadow: "0 12px 26px rgba(198,41,107,.08)", overflow: "hidden"
-        }}>
-          {offer.image ? (
-            <img src={offer.image} alt={offer.title} style={{ width: 78, height: 78, borderRadius: 14, objectFit: "cover", objectPosition: "center", flexShrink: 0, border: `2px solid rgba(74,42,34,.08)` }} />
-          ) : <div style={{ width: 78, height: 78, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(255,255,255,.45)", fontSize: 28 }}>🎉</div>}
-          <div style={{ flex: 1 }}>
-            <div style={{ fontFamily: "Nunito, sans-serif", fontWeight: 900, fontSize: 13, color: COLORS.cocoa, textTransform: "uppercase", letterSpacing: 0.7 }}>{offer.title}</div>
-            <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 12.5, color: "#6B4A3E", marginTop: 4 }}>{offer.description}</div>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function HomePage({ setPage, offers }) {
-  const features = [
-    { icon: "🌿", title: "Premium Ingredients", sub: "Made with the finest ingredients" },
-    { icon: "💗", title: "Made With Love", sub: "Every bite baked with care" },
-    { icon: "🧁", title: "Homemade & Fresh", sub: "Small batches for best quality" },
-    { icon: "🛡️", title: "Hygienic & Safe", sub: "Clean, safe & carefully packed" },
-  ];
-  return (
-    <div style={{ maxWidth: 1000, margin: "0 auto", padding: "28px 18px 60px" }}>
-      <div style={{
-        borderRadius: 28, padding: "40px 26px", textAlign: "center",
-        background: `radial-gradient(circle at 30% 20%, ${COLORS.blush}, ${COLORS.cream})`,
-        border: `2px solid ${COLORS.line}`,
-      }}>
-        <img src="/logo.jpg" alt="Little Treats by Jan" style={{ height: 90, width: 90, objectFit: "cover", borderRadius: "50%", border: `3px solid ${COLORS.marigold}`, margin: "0 auto 14px" }} />
-        <Pill>Baked with Love</Pill>
-        <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 36, margin: "14px 0 6px", color: COLORS.cocoa, lineHeight: 1.15 }}>
-          Homemade goodness,<br /><span style={{ color: COLORS.magenta }}>made with love</span>
-        </h1>
-        <p style={{ fontFamily: "Nunito, sans-serif", color: "#6B4A3E", fontSize: 15, maxWidth: 420, margin: "0 auto 22px" }}>
-          Cookies, biscuits, and more — made with the finest ingredients for you and your loved ones.
-        </p>
-        <Button variant="primary" onClick={() => setPage("products")} style={{ margin: "0 auto" }}>
-          <Sparkles size={16} /> Shop the jars
-        </Button>
-      </div>
-
-      <Ribbon />
-
-      <OfferStrip offers={offers} />
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px,1fr))", gap: 14 }}>
-        {features.map((f) => (
-          <div key={f.title} style={{ background: "#fff", borderRadius: 18, padding: "18px 12px", textAlign: "center", border: `2px solid ${COLORS.line}` }}>
-            <div style={{ fontSize: 26 }}>{f.icon}</div>
-            <div style={{ fontFamily: "Nunito, sans-serif", fontWeight: 800, fontSize: 13, color: COLORS.cocoa, marginTop: 6 }}>{f.title}</div>
-            <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 11.5, color: "#8A6C5F", marginTop: 2 }}>{f.sub}</div>
-          </div>
-        ))}
-      </div>
-
-      <Ribbon />
-
-      <div style={{
-        borderRadius: 22, padding: "22px", background: COLORS.cocoa, color: "#fff",
-        display: "flex", flexWrap: "wrap", gap: 16, alignItems: "center", justifyContent: "space-between",
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <Phone size={18} color={COLORS.marigold} />
-          <span style={{ fontFamily: "Nunito, sans-serif", fontWeight: 700, fontSize: 14 }}>Orders & enquiries: 8897987795</span>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <Instagram size={18} color={COLORS.marigold} />
-          <span style={{ fontFamily: "Nunito, sans-serif", fontWeight: 700, fontSize: 14 }}>@littletreats_by_jan</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ---------------- Product Gallery Modal ----------------
-   Opens when a shopper taps a product photo. Desktop: main image +
-   thumbnail strip below, hover to zoom, arrow buttons. Mobile: swipe
-   between photos with dot indicators instead of thumbnails. */
-function ProductGalleryModal({ product, addToCart, toast, onClose }) {
-  const [index, setIndex] = useState(0);
-  const [zoom, setZoom] = useState(null); // {x,y}% or null
-  const touchX = useRef(null);
-  const frameRef = useRef(null);
-
-  const images = useMemo(() => getProductImages(product), [product]);
-
-  useEffect(() => { setIndex(0); setZoom(null); }, [product?.id]);
-
-  useEffect(() => {
-    const onKey = (e) => {
-      if (!product) return;
-      if (e.key === "Escape") onClose();
-      if (e.key === "ArrowLeft") setIndex((i) => (i - 1 + images.length) % images.length);
-      if (e.key === "ArrowRight") setIndex((i) => (i + 1) % images.length);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [product, images.length, onClose]);
-
-  if (!product) return null;
-
-  const hasMultiple = images.length > 1;
-  const outOfStock = (product.stock ?? 0) <= 0;
-  const hasDiscount = Number(product.discountPercent) > 0;
-  const finalPrice = effectivePrice(product);
-
-  const go = (delta) => setIndex((i) => (i + delta + images.length) % images.length);
-
-  const handleMouseMove = (e) => {
-    if (!frameRef.current || images.length === 0) return;
-    const rect = frameRef.current.getBoundingClientRect();
-    const x = Math.min(100, Math.max(0, ((e.clientX - rect.left) / rect.width) * 100));
-    const y = Math.min(100, Math.max(0, ((e.clientY - rect.top) / rect.height) * 100));
-    setZoom({ x, y });
-  };
-
-  const handleTouchStart = (e) => { touchX.current = e.touches[0].clientX; };
-  const handleTouchEnd = (e) => {
-    if (touchX.current == null || !hasMultiple) return;
-    const dx = e.changedTouches[0].clientX - touchX.current;
-    if (dx > 45) go(-1);
-    else if (dx < -45) go(1);
-    touchX.current = null;
-  };
-
-  return (
-    <div
-      onClick={onClose}
-      style={{
-        position: "fixed", inset: 0, zIndex: 300, background: "rgba(42,20,15,.6)",
-        display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          background: "#fff", borderRadius: 24, width: "100%", maxWidth: 620,
-          maxHeight: "92vh", overflowY: "auto", boxShadow: "0 30px 70px rgba(0,0,0,.4)",
-        }}
-      >
-        {/* main image */}
-        <div
-          ref={frameRef}
-          onMouseMove={handleMouseMove}
-          onMouseLeave={() => setZoom(null)}
-          onTouchStart={handleTouchStart}
-          onTouchEnd={handleTouchEnd}
-          style={{
-            position: "relative", height: 320, borderTopLeftRadius: 24, borderTopRightRadius: 24,
-            overflow: "hidden", background: COLORS.blush, cursor: images.length ? "zoom-in" : "default",
-            touchAction: "pan-y",
-          }}
-        >
-          {images.length > 0 ? (
-            <div style={{
-              position: "absolute", inset: 0,
-              backgroundImage: `url(${images[index]})`,
-              backgroundRepeat: "no-repeat",
-              backgroundSize: zoom ? "220%" : "cover",
-              backgroundPosition: zoom ? `${zoom.x}% ${zoom.y}%` : "center",
-              transition: zoom ? "none" : "background-size .15s ease",
-            }} />
-          ) : (
-            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <span style={{ fontSize: 90 }}>{product.emoji}</span>
-            </div>
-          )}
-
-          <button onClick={onClose} style={{
-            position: "absolute", top: 12, right: 12, width: 34, height: 34, borderRadius: "50%",
-            background: "rgba(255,255,255,.92)", border: "none", cursor: "pointer",
-            display: "flex", alignItems: "center", justifyContent: "center", color: COLORS.cocoa,
-          }}><X size={18} /></button>
-
-          {images.length > 0 && !zoom && (
-            <div style={{
-              position: "absolute", bottom: 10, right: 10, background: "rgba(74,42,34,.55)", color: "#fff",
-              borderRadius: 999, padding: "3px 9px", fontSize: 10.5, fontWeight: 700, display: "flex",
-              alignItems: "center", gap: 4, fontFamily: "Nunito, sans-serif",
-            }}><ZoomIn size={12} /> Hover to zoom</div>
-          )}
-
-          {hasMultiple && (
-            <>
-              <button onClick={() => go(-1)} style={{
-                position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)",
-                width: 34, height: 34, borderRadius: "50%", background: "rgba(255,255,255,.92)",
-                border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: COLORS.cocoa,
-              }}><ChevronLeft size={18} /></button>
-              <button onClick={() => go(1)} style={{
-                position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
-                width: 34, height: 34, borderRadius: "50%", background: "rgba(255,255,255,.92)",
-                border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: COLORS.cocoa,
-              }}><ChevronRight size={18} /></button>
-            </>
-          )}
-
-          {hasDiscount && !outOfStock && (
-            <div style={{ position: "absolute", top: 12, left: 12, background: COLORS.mint, color: "#fff", fontSize: 11, fontWeight: 800, padding: "4px 10px", borderRadius: 999 }}>{product.discountPercent}% OFF</div>
-          )}
-        </div>
-
-        {/* thumbnails (desktop-friendly, also usable on mobile) */}
-        {hasMultiple && (
-          <div style={{ display: "flex", gap: 8, padding: "12px 16px 0", overflowX: "auto" }}>
-            {images.map((img, i) => (
-              <button
-                key={i}
-                onClick={() => setIndex(i)}
-                style={{
-                  width: 56, height: 56, borderRadius: 12, flexShrink: 0, padding: 0, cursor: "pointer",
-                  overflow: "hidden", background: COLORS.blush,
-                  border: i === index ? `2.5px solid ${COLORS.magenta}` : `2.5px solid transparent`,
-                  opacity: i === index ? 1 : 0.7,
-                }}
-              >
-                <img src={img} alt={`${product.name} ${i + 1}`} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* dot indicators — most useful on mobile while swiping */}
-        {hasMultiple && (
-          <div style={{ display: "flex", justifyContent: "center", gap: 6, padding: "10px 0 0" }}>
-            {images.map((_, i) => (
-              <span key={i} style={{
-                width: i === index ? 16 : 6, height: 6, borderRadius: 999,
-                background: i === index ? COLORS.magenta : COLORS.line, transition: "width .15s ease",
-              }} />
-            ))}
-          </div>
-        )}
-
-        {/* product info */}
-        <div style={{ padding: 20 }}>
-          {product.tag && <div style={{ marginBottom: 6 }}><Pill bg="#FFF1D9" color="#B4720F">{product.tag}</Pill></div>}
-          <div style={{ fontFamily: "'Playfair Display', serif", fontWeight: 800, fontSize: 22, color: COLORS.cocoa }}>{product.name}</div>
-          <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 13, color: "#8A6C5F", margin: "6px 0 10px" }}>{product.desc}</div>
-          <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 12, color: "#B08A7A", marginBottom: 14 }}>{product.weight || product.unit}</div>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-              <span style={{ fontFamily: "'Playfair Display', serif", fontWeight: 800, fontSize: 24, color: COLORS.magenta }}>₹{finalPrice}</span>
-              {hasDiscount && <span style={{ fontFamily: "Nunito, sans-serif", fontSize: 14, color: "#B08A7A", textDecoration: "line-through" }}>₹{product.price}</span>}
-            </span>
-            <Button variant="primary" disabled={outOfStock} onClick={() => { addToCart(product.id); toast(`${product.name} added to cart`); }}>
-              {outOfStock ? "Unavailable" : (<><Plus size={15} /> Add to cart</>)}
-            </Button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ---------------- Products ---------------- */
-
-function ProductsPage({ products, addToCart, toast, onView }) {
-  return (
-    <div style={{ maxWidth: 1000, margin: "0 auto", padding: "24px 18px 60px" }}>
-      <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 26, color: COLORS.cocoa }}>Our Little Treats</h2>
-      <p style={{ fontFamily: "Nunito, sans-serif", color: "#8A6C5F", fontSize: 13.5, marginBottom: 18 }}>Small batches, freshly baked and carefully packed.</p>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px,1fr))", gap: 16 }}>
-        {products.map((p) => (
-          <ProductCard key={p.id} product={p} addToCart={addToCart} toast={toast} onView={onView} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/* ---------------- Cart & Checkout with bite-progress ---------------- */
-
-function BiteProgress({ step }) {
-  const steps = ["Cart", "Address", "Confirm"];
-  return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, margin: "6px 0 24px" }}>
-      {steps.map((s, i) => (
-        <React.Fragment key={s}>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-            <div style={{
-              width: 30, height: 30, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
-              background: i <= step ? COLORS.magenta : "#fff", border: `2px solid ${i <= step ? COLORS.magenta : COLORS.line}`,
-              color: i <= step ? "#fff" : "#B08A7A", fontSize: 15,
-            }}>
-              {i < step ? <Check size={15} /> : "🍪"}
-            </div>
-            <span style={{ fontFamily: "Nunito, sans-serif", fontWeight: 800, fontSize: 10.5, color: i <= step ? COLORS.magenta : "#B08A7A" }}>{s}</span>
-          </div>
-          {i < steps.length - 1 && <div style={{ width: 30, height: 2, background: i < step ? COLORS.magenta : COLORS.line, marginBottom: 16 }} />}
-        </React.Fragment>
-      ))}
-    </div>
-  );
-}
-
-function CartPage({ cart, products, updateQty, removeFromCart, setPage, user }) {
-  const items = cart.map((c) => ({ ...c, product: products.find((p) => p.id === c.id) })).filter((i) => i.product);
-  const total = items.reduce((s, i) => s + effectivePrice(i.product) * i.qty, 0);
-
-  return (
-    <div style={{ maxWidth: 700, margin: "0 auto", padding: "24px 18px 60px" }}>
-      <BiteProgress step={0} />
-      <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 24, color: COLORS.cocoa, marginBottom: 16 }}>Your Cart</h2>
-      {items.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "40px 0", color: "#8A6C5F", fontFamily: "Nunito, sans-serif" }}>
-          <div style={{ fontSize: 40 }}>🧺</div>
-          Your cart is empty. Add some little treats!
-          <div style={{ marginTop: 16 }}><Button variant="primary" onClick={() => setPage("products")}>Browse Products</Button></div>
-        </div>
-      ) : (
-        <>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {items.map((i) => (
-              <div key={i.id} style={{ display: "flex", alignItems: "center", gap: 12, background: "#fff", border: `2px solid ${COLORS.line}`, borderRadius: 16, padding: 12 }}>
-                <div style={{ fontSize: 30, background: COLORS.blush, borderRadius: 12, width: 50, height: 50, display: "flex", alignItems: "center", justifyContent: "center" }}>{i.product.emoji}</div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontFamily: "Nunito, sans-serif", fontWeight: 800, fontSize: 14, color: COLORS.cocoa }}>{i.product.name}</div>
-                  <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 12.5, color: COLORS.magenta, fontWeight: 700 }}>₹{effectivePrice(i.product)}</div>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, background: COLORS.cream, borderRadius: 10, padding: "4px 8px" }}>
-                  <button onClick={() => updateQty(i.id, i.qty - 1)} style={{ border: "none", background: "none", cursor: "pointer", color: COLORS.magenta }}><Minus size={15} /></button>
-                  <span style={{ fontFamily: "Nunito, sans-serif", fontWeight: 800, minWidth: 16, textAlign: "center" }}>{i.qty}</span>
-                  <button onClick={() => updateQty(i.id, i.qty + 1)} style={{ border: "none", background: "none", cursor: "pointer", color: COLORS.magenta }}><Plus size={15} /></button>
-                </div>
-                <button onClick={() => removeFromCart(i.id)} style={{ border: "none", background: "none", cursor: "pointer", color: "#C6296B" }}><Trash2 size={16} /></button>
-              </div>
-            ))}
-          </div>
-          <div style={{ display: "flex", justifyContent: "space-between", padding: "18px 4px", fontFamily: "Nunito, sans-serif", fontWeight: 800, fontSize: 16, color: COLORS.cocoa }}>
-            <span>Total</span><span>₹{total}</span>
-          </div>
-          <Button full variant="primary" onClick={() => setPage(user ? "checkout" : "login")}>
-            {user ? "Proceed to Address" : "Login to Checkout"}
-          </Button>
-        </>
-      )}
-    </div>
-  );
-}
-
-// TODO: replace with your real UPI ID once set up (shown to customers at checkout).
-const BUSINESS_UPI_ID = "9160360405@ibl";
-
-function CheckoutPage({ cart, products, placeOrder, setPage, user, pushToast, callSheet }) {
-  const [address, setAddress] = useState({
-    name: user?.name || "", phone: user?.phone || "", line1: user?.address || "", city: user?.city || "", pincode: user?.pincode || "",
-  });
-  const [utr, setUtr] = useState("");
-  const [screenshotPreview, setScreenshotPreview] = useState("");
-  const [screenshotFile, setScreenshotFile] = useState(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [progress, setProgress] = useState("");
-  const [error, setError] = useState("");
-
-  const items = cart.map((c) => ({ ...c, product: products.find((p) => p.id === c.id) })).filter((i) => i.product);
-  const total = items.reduce((s, i) => s + effectivePrice(i.product) * i.qty, 0);
-  const utrValue = String(utr || "").trim();
-  const canSubmit = address.name && address.phone && address.line1 && address.city && address.pincode && utrValue.length >= 6 && !!screenshotFile;
-
-  const upiLink = `upi://pay?pa=${encodeURIComponent(BUSINESS_UPI_ID)}&pn=${encodeURIComponent("Little Treats by Jan")}&am=${total}&cu=INR`;
-  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(upiLink)}`;
-
-  const handleScreenshot = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setScreenshotFile(file);
-    const reader = new FileReader();
-    reader.onload = () => setScreenshotPreview(reader.result);
-    reader.readAsDataURL(file);
-  };
-
-  const submit = async () => {
-    setError("");
-    if (!screenshotFile) { setError("Please upload a screenshot of your payment — it's required to confirm your order."); return; }
-
-    setSubmitting(true);
-    try {
-      setProgress("Compressing screenshot...");
-      const compressed = await compressImageFile(screenshotFile);
-
-      setProgress("Uploading proof of payment...");
-      const screenshotUrl = await uploadImageInChunks(compressed, callSheet, (done, totalChunks) => {
-        setProgress(`Uploading proof of payment (${done}/${totalChunks})...`);
-      });
-
-      setProgress("Confirming order...");
-      const result = await placeOrder(address, {
-        utr: String(utr || "").trim(),
-        paymentMethod: "UPI (Manual)",
-        paymentStatus: "Pending Verification",
-        screenshotUrl,
-      });
-      if (!result?.ok) {
-        setError(result?.error || "Couldn't place order. Please try again.");
-        pushToast(result?.error || "Couldn't place order.");
-      }
-    } catch (e) {
-      setError(e.message || "Couldn't upload your payment proof. Please try again.");
-      pushToast("Upload failed — please try again.");
-    } finally {
-      setSubmitting(false);
-      setProgress("");
-    }
-  };
-
-  return (
-    <div style={{ maxWidth: 560, margin: "0 auto", padding: "24px 18px 60px" }}>
-      <BiteProgress step={1} />
-      <button onClick={() => setPage("cart")} style={{ display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", color: COLORS.magenta, fontFamily: "Nunito, sans-serif", fontWeight: 800, cursor: "pointer", marginBottom: 10 }}>
-        <ChevronLeft size={16} /> Back to cart
-      </button>
-      <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, color: COLORS.cocoa, marginBottom: 4 }}><MapPin size={18} style={{ marginRight: 6, verticalAlign: -3 }} color={COLORS.magenta} />Delivery Address</h2>
-      <div style={{ background: "#fff", border: `2px solid ${COLORS.line}`, borderRadius: 18, padding: 18, marginTop: 14 }}>
-        <Field label="Full Name" value={address.name} onChange={(e) => setAddress({ ...address, name: e.target.value })} placeholder="Jane Doe" />
-        <Field label="Phone Number" value={address.phone} onChange={(e) => setAddress({ ...address, phone: e.target.value })} placeholder="98765 43210" />
-        <Field label="Address" value={address.line1} onChange={(e) => setAddress({ ...address, line1: e.target.value })} placeholder="House no, street, area" />
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Field label="City" value={address.city} onChange={(e) => setAddress({ ...address, city: e.target.value })} placeholder="City" />
-          <Field label="Pincode" value={address.pincode} onChange={(e) => setAddress({ ...address, pincode: e.target.value })} placeholder="560001" />
-        </div>
-      </div>
-
-      <div style={{ background: COLORS.blush, borderRadius: 16, padding: 14, marginTop: 16, fontFamily: "Nunito, sans-serif" }}>
-        <div style={{ fontWeight: 800, fontSize: 13, color: COLORS.cocoa, marginBottom: 8 }}>Order Summary</div>
-        {items.map((i) => (
-          <div key={i.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "#6B4A3E", marginBottom: 4 }}>
-            <span>{i.product.name} × {i.qty}</span><span>₹{effectivePrice(i.product) * i.qty}</span>
-          </div>
-        ))}
-        <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 800, fontSize: 14, color: COLORS.cocoa, marginTop: 6, paddingTop: 6, borderTop: `1px dashed ${COLORS.marigold}` }}>
-          <span>Total</span><span>₹{total}</span>
-        </div>
-      </div>
-
-      <div style={{ background: "#fff", border: `2px solid ${COLORS.line}`, borderRadius: 18, padding: 18, marginTop: 16 }}>
-        <div style={{ fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: 16, color: COLORS.cocoa, marginBottom: 10 }}>Pay via UPI</div>
-        <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
-          <img src={qrImageUrl} alt="UPI QR code" style={{ width: 130, height: 130, borderRadius: 10, border: `2px solid ${COLORS.line}` }} />
-          <div style={{ flex: 1, minWidth: 180, fontFamily: "Nunito, sans-serif", fontSize: 13, color: "#6B4A3E" }}>
-            <div>Scan the QR, or pay directly to:</div>
-            <div style={{ fontWeight: 800, color: COLORS.magenta, margin: "4px 0" }}>{BUSINESS_UPI_ID}</div>
-            <div>Amount: <b>₹{total}</b></div>
-          </div>
-        </div>
-
-        <div style={{ marginTop: 16 }}>
-          <Field label="UTR / Transaction Reference Number *" value={utr} onChange={(e) => setUtr(e.target.value)} placeholder="e.g. 402812345678" />
-        </div>
-
-        <label style={{ display: "block", marginBottom: 10 }}>
-          <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, color: COLORS.cocoa, marginBottom: 6 }}>Payment Screenshot * (required)</span>
-          <input type="file" accept="image/*" onChange={handleScreenshot} style={{ fontFamily: "Nunito, sans-serif", fontSize: 13 }} />
-          {screenshotPreview && <img src={screenshotPreview} alt="payment screenshot preview" style={{ width: 90, height: 90, objectFit: "contain", borderRadius: 10, marginTop: 8, border: `2px solid ${COLORS.line}`, background: COLORS.blush }} />}
-        </label>
-
-        <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 11, color: "#B08A7A" }}>
-          Each UTR number can only be used once, and a payment screenshot is required as proof — make sure the UTR is copied exactly from your UPI app's confirmation.
-        </div>
-      </div>
-
-      {error && <div style={{ color: "#C6296B", fontFamily: "Nunito, sans-serif", fontSize: 12.5, fontWeight: 700, marginTop: 12 }}>{error}</div>}
-      {progress && !error && <div style={{ color: COLORS.mint, fontFamily: "Nunito, sans-serif", fontSize: 12.5, fontWeight: 700, marginTop: 12 }}>{progress}</div>}
-
-      <Button full variant="primary" disabled={!canSubmit || submitting} style={{ marginTop: 16 }} onClick={submit}>
-        {submitting ? "Please wait..." : <><Check size={16} /> Confirm Order</>}
-      </Button>
-    </div>
-  );
-}
-
-function ConfirmationPage({ lastOrder, setPage }) {
-  return (
-    <div style={{ maxWidth: 500, margin: "0 auto", padding: "48px 18px 60px", textAlign: "center" }}>
-      <BiteProgress step={2} />
-      <div style={{ fontSize: 56 }}>🧁</div>
-      <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 24, color: COLORS.cocoa, margin: "10px 0 6px" }}>Order Received!</h2>
-      <p style={{ fontFamily: "Nunito, sans-serif", color: "#8A6C5F", fontSize: 14, marginBottom: 4 }}>
-        Order <b style={{ color: COLORS.magenta }}>#{lastOrder?.id}</b> is <b style={{ color: "#B4720F" }}>pending confirmation</b> from Little Treats.
-      </p>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, color: COLORS.mint, fontFamily: "Nunito, sans-serif", fontWeight: 700, fontSize: 13, margin: "10px 0 20px" }}>
-        <Bell size={15} /> We've notified you — you'll get another notification once it's confirmed
-      </div>
-      <div style={{ background: "#fff", border: `2px solid ${COLORS.line}`, borderRadius: 16, padding: 16, textAlign: "left", fontFamily: "Nunito, sans-serif" }}>
-        <div style={{ fontWeight: 800, color: COLORS.cocoa, marginBottom: 8 }}>Delivering to</div>
-        <div style={{ fontSize: 13, color: "#6B4A3E" }}>{lastOrder?.address.name}, {lastOrder?.address.line1}, {lastOrder?.address.city} - {lastOrder?.address.pincode}</div>
-        <div style={{ fontSize: 13, color: "#6B4A3E", marginTop: 4 }}>📞 {lastOrder?.address.phone}</div>
-      </div>
-      <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
-        <Button variant="ghost" full onClick={() => setPage("products")}>Order More</Button>
-        <Button variant="primary" full onClick={() => setPage("orders")}>Track Orders</Button>
-      </div>
-    </div>
-  );
-}
-
-/* ---------------- Auth ---------------- */
-
-function LoginPage({ setPage, loginUser, registerUser, resetPassword, authBusy }) {
-  const [mode, setMode] = useState("login"); // login | register | forgot
-  const [form, setForm] = useState({ name: "", email: "", password: "", phone: "", address: "", city: "", pincode: "" });
-  const [resetForm, setResetForm] = useState({ email: "", newPassword: "", confirm: "" });
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
-
-  const submit = async () => {
-    setError("");
-    if (mode === "login") {
-      const result = await loginUser(form.email, form.password);
-      if (!result.ok) return setError(result.error);
-      setPage(result.user.role === "admin" ? "admin" : "home");
-    } else {
-      if (!form.name || !form.email || !form.password) return setError("Please fill in name, email, and password.");
-      const result = await registerUser(form.name, form.email, form.password, {
-        phone: form.phone, address: form.address, city: form.city, pincode: form.pincode,
-      });
-      if (!result.ok) return setError(result.error);
-      setPage("home");
-    }
-  };
-
-  const submitReset = async () => {
-    setError(""); setNotice("");
-    if (!resetForm.newPassword || resetForm.newPassword.length < 4) return setError("New password must be at least 4 characters.");
-    if (resetForm.newPassword !== resetForm.confirm) return setError("Passwords don't match.");
-    const result = await resetPassword(resetForm.email, resetForm.newPassword);
-    if (!result.ok) return setError(result.error || "Couldn't reset password.");
-    setNotice("Password updated! You can log in with your new password now.");
-    setResetForm({ email: "", newPassword: "", confirm: "" });
-    setTimeout(() => { setMode("login"); setNotice(""); }, 1800);
-  };
-
-  return (
-    <div style={{ maxWidth: 420, margin: "0 auto", padding: "40px 18px 60px" }}>
-      <div style={{ textAlign: "center", marginBottom: 20 }}>
-        <img src="/logo.jpg" alt="Little Treats by Jan" style={{ height: 64, width: 64, objectFit: "cover", borderRadius: "50%", border: `3px solid ${COLORS.marigold}`, margin: "0 auto" }} />
-        <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, color: COLORS.cocoa }}>
-          {mode === "login" ? "Welcome back" : mode === "register" ? "Create your account" : "Reset your password"}
-        </h2>
-        <p style={{ fontFamily: "Nunito, sans-serif", fontSize: 13, color: "#8A6C5F" }}>
-          {mode === "login" ? "Log in to order your favourite treats" : mode === "register" ? "Sign up to start ordering" : "Enter your account email and choose a new password"}
-        </p>
-      </div>
-
-      <div style={{ background: "#fff", border: `2px solid ${COLORS.line}`, borderRadius: 18, padding: 20 }}>
-        {mode === "forgot" ? (
-          <>
-            <Field label="Account Email" type="email" value={resetForm.email} onChange={(e) => setResetForm({ ...resetForm, email: e.target.value })} placeholder="you@example.com" />
-            <Field label="New Password" type="password" value={resetForm.newPassword} onChange={(e) => setResetForm({ ...resetForm, newPassword: e.target.value })} placeholder="At least 4 characters" />
-            <Field label="Confirm New Password" type="password" value={resetForm.confirm} onChange={(e) => setResetForm({ ...resetForm, confirm: e.target.value })} placeholder="Re-enter new password" />
-            {error && <div style={{ color: "#C6296B", fontFamily: "Nunito, sans-serif", fontSize: 12.5, fontWeight: 700, marginBottom: 10 }}>{error}</div>}
-            {notice && <div style={{ color: "#2E8F55", fontFamily: "Nunito, sans-serif", fontSize: 12.5, fontWeight: 700, marginBottom: 10 }}>{notice}</div>}
-            <Button full variant="primary" onClick={submitReset} disabled={authBusy}>
-              <Lock size={15} /> {authBusy ? "Updating..." : "Update Password"}
-            </Button>
-            <div style={{ marginTop: 10, fontFamily: "Nunito, sans-serif", fontSize: 11, color: "#B08A7A", textAlign: "center" }}>
-              This demo resets the password directly. A production version would email a one-time code first — see note below.
-            </div>
-          </>
-        ) : (
-          <>
-            {mode === "register" && <Field label="Full Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Jane Doe" />}
-            <Field label="Email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="you@example.com" />
-            <Field label="Password" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="••••••••" />
-            {mode === "register" && (
-              <>
-                <Field label="Phone Number (optional)" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="98765 43210" />
-                <Field label="Delivery Address (optional)" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="House no, street, area" />
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                  <Field label="City" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} placeholder="City" />
-                  <Field label="Pincode" value={form.pincode} onChange={(e) => setForm({ ...form, pincode: e.target.value })} placeholder="560001" />
-                </div>
-                <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 11, color: "#B08A7A", marginBottom: 12 }}>
-                  Optional now — saves you typing it again at checkout. You can add or update it later too.
-                </div>
-              </>
-            )}
-            {error && <div style={{ color: "#C6296B", fontFamily: "Nunito, sans-serif", fontSize: 12.5, fontWeight: 700, marginBottom: 10 }}>{error}</div>}
-            <Button full variant="primary" onClick={submit} disabled={authBusy}>
-              <Lock size={15} /> {authBusy ? "Please wait..." : mode === "login" ? "Log In" : "Sign Up"}
-            </Button>
-            {mode === "login" && (
-              <div style={{ textAlign: "center", marginTop: 10 }}>
-                <button onClick={() => { setMode("forgot"); setError(""); }} style={{ background: "none", border: "none", color: COLORS.mint, fontWeight: 700, fontSize: 12.5, cursor: "pointer", fontFamily: "Nunito, sans-serif" }}>
-                  Forgot password?
-                </button>
-              </div>
-            )}
-          </>
-        )}
-
-        <div style={{ textAlign: "center", marginTop: 14, fontFamily: "Nunito, sans-serif", fontSize: 13, color: "#8A6C5F" }}>
-          {mode === "forgot" ? (
-            <button onClick={() => { setMode("login"); setError(""); setNotice(""); }} style={{ background: "none", border: "none", color: COLORS.magenta, fontWeight: 800, cursor: "pointer" }}>Back to log in</button>
-          ) : (
-            <>
-              {mode === "login" ? "New here?" : "Already have an account?"}{" "}
-              <button onClick={() => { setMode(mode === "login" ? "register" : "login"); setError(""); }} style={{ background: "none", border: "none", color: COLORS.magenta, fontWeight: 800, cursor: "pointer" }}>
-                {mode === "login" ? "Create an account" : "Log in"}
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ---------------- User Orders ---------------- */
-
-function statusColor(status) {
-  return { Pending: "#B4720F", Confirmed: COLORS.mint, Preparing: COLORS.marigold, "Out for Delivery": COLORS.magenta, Delivered: "#2E8F55", Declined: "#A03030" }[status] || COLORS.cocoa;
-}
-
-function OrdersPage({ orders, user, setPage }) {
-  const mine = orders.filter((o) => (o.userEmail || "").toLowerCase() === (user?.email || "").toLowerCase());
-  return (
-    <div style={{ maxWidth: 640, margin: "0 auto", padding: "24px 18px 60px" }}>
-      <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 24, color: COLORS.cocoa, marginBottom: 16 }}>My Orders</h2>
-      {mine.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "40px 0", color: "#8A6C5F", fontFamily: "Nunito, sans-serif" }}>
-          No orders yet.
-          <div style={{ marginTop: 14 }}><Button variant="primary" onClick={() => setPage("products")}>Start Shopping</Button></div>
-        </div>
-      ) : mine.slice().reverse().map((o) => (
-        <div key={o.id} style={{ background: "#fff", border: `2px solid ${COLORS.line}`, borderRadius: 16, padding: 16, marginBottom: 12 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-            <span style={{ fontFamily: "Nunito, sans-serif", fontWeight: 800, color: COLORS.cocoa }}>Order #{o.id}</span>
-            <Pill color={statusColor(o.status)} bg="#F5EDE6">{o.status}</Pill>
-          </div>
-          <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 12.5, color: "#8A6C5F" }}>{new Date(o.date).toLocaleString()}</div>
-          <div style={{ marginTop: 8, fontFamily: "Nunito, sans-serif", fontSize: 13 }}>
-            {o.itemsText ? (
-              <div style={{ color: "#6B4A3E" }}>{o.itemsText}</div>
-            ) : (
-              (o.items || []).map((i) => <div key={i.id} style={{ color: "#6B4A3E" }}>{i.name} × {i.qty}</div>)
-            )}
-          </div>
-          <div style={{ marginTop: 8, fontWeight: 800, color: COLORS.magenta, fontFamily: "Nunito, sans-serif" }}>₹{o.total}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/* ---------------- Admin ---------------- */
-
-function AdminProductsPage({ products, addProduct, deleteProduct, updateProduct, sheetUrl, setSheetUrl, callSheet, pushToast }) {
-  const [form, setForm] = useState({ name: "", price: "", weight: "", stock: "", discountPercent: "", emoji: "🍪", desc: "", tag: "", images: [] });
-  const [imgError, setImgError] = useState("");
-  const [uploading, setUploading] = useState(false);
-
-  const MAX_PHOTOS = 5;
-
-  const handleImages = async (e) => {
-    const files = Array.from(e.target.files || []);
-    e.target.value = ""; // allow re-selecting the same file later
-    if (!files.length) return;
-    setImgError("");
-
-    const room = MAX_PHOTOS - form.images.length;
-    if (room <= 0) { setImgError(`You can add up to ${MAX_PHOTOS} photos per product.`); return; }
-    const toAdd = files.slice(0, room);
-    if (files.length > room) setImgError(`Only added ${room} more — ${MAX_PHOTOS} photos max per product.`);
-
-    if (!sheetUrl) {
-      // demo mode — preview only, not persisted
-      for (const file of toAdd) {
-        const dataUrl = await new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result);
-          reader.readAsDataURL(file);
-        });
-        setForm((f) => ({ ...f, images: [...f.images, dataUrl] }));
-      }
-      return;
-    }
-
-    setUploading(true);
-    try {
-      for (const file of toAdd) {
-        const compressed = await compressImageFile(file, 800, 0.7);
-        const url = await uploadImageInChunks(compressed, callSheet);
-        if (!url || !url.startsWith("http")) throw new Error("Invalid image URL returned from server.");
-        setForm((f) => ({ ...f, images: [...f.images, url] }));
-      }
-      pushToast(toAdd.length > 1 ? `✓ ${toAdd.length} photos uploaded!` : "✓ Photo uploaded and ready!");
-    } catch (err) {
-      setImgError(err.message || "Couldn't upload one of the photos. Please try again.");
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const removeImage = (i) => setForm((f) => ({ ...f, images: f.images.filter((_, idx) => idx !== i) }));
-
-  const submit = () => {
-    if (!form.name || !form.price) return;
-
-    // Require any in-progress upload to finish first
-    if (uploading) {
-      setImgError("Please wait for the photo upload to finish.");
-      return;
-    }
-    if (form.images.some((img) => img.startsWith("data:") && sheetUrl)) {
-      setImgError("Please wait for the photo upload to finish before adding the product.");
-      return;
-    }
-
-    addProduct({
-      ...form, id: "p" + Date.now(),
-      price: Number(form.price),
-      stock: Number(form.stock) || 0,
-      discountPercent: Math.min(90, Math.max(0, Number(form.discountPercent) || 0)),
-      unit: form.weight,
-      image: form.images[0] || "",         // legacy single-image field, kept for backward compatibility
-      images: form.images.join("|"),        // pipe-joined so it round-trips through the Sheet as plain text
-    });
-    setForm({ name: "", price: "", weight: "", stock: "", discountPercent: "", emoji: "🍪", desc: "", tag: "", images: [] });
-    setImgError("");
-  };
-
-  return (
-    <div style={{ maxWidth: 900, margin: "0 auto", padding: "24px 18px 60px" }}>
-      <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 24, color: COLORS.cocoa, marginBottom: 4 }}>Admin · Products</h2>
-      <p style={{ fontFamily: "Nunito, sans-serif", fontSize: 13, color: "#8A6C5F", marginBottom: 18 }}>Add new treats, set stock levels, discounts, and upload product photos.</p>
-
-      {sheetUrl && (
-        <button
-          onClick={() => {
-            (async () => {
-              const result = await callSheet({ action: "getProducts" });
-              if (result.ok && Array.isArray(result.products)) {
-                console.log("✓ Reloaded products:", result.products);
-                const withImages = result.products.map(p => ({
-                  ...p,
-                  image: String(p.image || "").trim() || "",
-                }));
-                setProducts(withImages);
-                pushToast("✓ Products reloaded from Google Sheets");
-              } else {
-                pushToast("❌ Failed to reload products");
-              }
-            })();
-          }}
-          style={{ marginBottom: 18, padding: "8px 14px", borderRadius: 10, background: COLORS.mint, color: "#fff", border: "none", fontFamily: "Nunito, sans-serif", fontWeight: 800, fontSize: 13, cursor: "pointer" }}
-        >
-          🔄 Reload from Google Sheets
-        </button>
-      )}
-
-      <div style={{ background: "#fff", border: `2px solid ${COLORS.line}`, borderRadius: 18, padding: 18, marginBottom: 24 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 12 }}>
-          <Field label="Product Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Choco Delight Cookies" />
-          <Field label="Price (₹)" type="number" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} placeholder="249" />
-          <Field label="Weight / Size" value={form.weight} onChange={(e) => setForm({ ...form, weight: e.target.value })} placeholder="250g jar" />
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
-          <Field label="Stock Quantity" type="number" value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} placeholder="20" />
-          <Field label="Discount %" type="number" value={form.discountPercent} onChange={(e) => setForm({ ...form, discountPercent: e.target.value })} placeholder="0" />
-          <Field label="Emoji Icon (fallback)" value={form.emoji} onChange={(e) => setForm({ ...form, emoji: e.target.value })} placeholder="🍪" />
-          <Field label="Tag (optional)" value={form.tag} onChange={(e) => setForm({ ...form, tag: e.target.value })} placeholder="New" />
-        </div>
-        <Field label="Description" value={form.desc} onChange={(e) => setForm({ ...form, desc: e.target.value })} placeholder="Short description" />
-
-        <div style={{ marginBottom: 14 }}>
-          <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, color: COLORS.cocoa, marginBottom: 6 }}>
-            Product Photos (optional, up to {MAX_PHOTOS} — first one is the cover photo)
-          </span>
-          <label style={{
-            display: "inline-flex", alignItems: "center", gap: 8, cursor: form.images.length >= MAX_PHOTOS ? "not-allowed" : "pointer",
-            padding: "9px 14px", borderRadius: 10, border: `2px dashed ${COLORS.line}`, color: COLORS.cocoa,
-            fontFamily: "Nunito, sans-serif", fontWeight: 700, fontSize: 13, background: "#fff",
-          }}>
-            <ImagePlus size={16} color={COLORS.magenta} /> Add photos
-            <input
-              type="file" accept="image/*" multiple
-              onChange={handleImages}
-              disabled={uploading || form.images.length >= MAX_PHOTOS}
-              style={{ display: "none" }}
-            />
-          </label>
-          {uploading && <div style={{ color: COLORS.mint, fontSize: 12, fontWeight: 700, marginTop: 8 }}>Uploading photo...</div>}
-          {imgError && <div style={{ color: "#C6296B", fontSize: 12, fontWeight: 700, marginTop: 8 }}>{imgError}</div>}
-
-          {form.images.length > 0 && (
-            <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
-              {form.images.map((img, i) => (
-                <div key={i} style={{ position: "relative", width: 76, height: 76 }}>
-                  <img src={img} alt={`preview ${i + 1}`} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: 12, border: `2px solid ${COLORS.line}`, background: COLORS.blush }} />
-                  {i === 0 && (
-                    <span style={{ position: "absolute", bottom: -6, left: 4, background: COLORS.magenta, color: "#fff", fontSize: 8.5, fontWeight: 800, padding: "1.5px 6px", borderRadius: 999 }}>COVER</span>
-                  )}
-                  <button
-                    onClick={() => removeImage(i)}
-                    style={{
-                      position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: "50%",
-                      background: COLORS.cocoa, color: "#fff", border: "2px solid #fff", cursor: "pointer",
-                      display: "flex", alignItems: "center", justifyContent: "center", padding: 0,
-                    }}
-                  ><X size={11} /></button>
-                </div>
-              ))}
-            </div>
-          )}
-          {!sheetUrl && <div style={{ color: "#B08A7A", fontSize: 11, marginTop: 8 }}>Connect Google Sheets below to make photos persist permanently.</div>}
-        </div>
-
-        <Button variant="primary" onClick={submit} disabled={uploading}><Plus size={15} /> Add Product</Button>
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px,1fr))", gap: 14, marginBottom: 28 }}>
-        {products.map((p) => (
-          <div key={p.id} style={{ background: "#fff", border: `2px solid ${COLORS.line}`, borderRadius: 16, padding: 14, position: "relative" }}>
-            <button onClick={() => deleteProduct(p.id)} style={{ position: "absolute", top: 10, right: 10, background: "none", border: "none", color: "#C6296B", cursor: "pointer" }}><Trash2 size={15} /></button>
-            <div style={{ width: "100%", height: 100, borderRadius: 10, marginBottom: 8, background: COLORS.blush, position: "relative", overflow: "hidden" }}>
-              {p.image && String(p.image).trim().length > 0 ? (
-                <img
-                  src={normalizeImageUrl(p.image)}
-                  alt={p.name}
-                  style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "center" }}
-                  onError={(e) => {
-                    console.warn(`⚠️ Image failed to load for ${p.name}: ${p.image}`);
-                    e.currentTarget.style.display = "none";
-                    e.currentTarget.parentElement.insertAdjacentHTML("beforeend", `<span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:40px">${p.emoji || "🍪"}</span>`);
-                  }}
-                />
-              ) : (
-                <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <span style={{ fontSize: 40 }}>{p.emoji}</span>
-                </div>
-              )}
-              {getProductImages(p).length > 1 && (
-                <div style={{
-                  position: "absolute", bottom: 6, right: 6, background: "rgba(74,42,34,.6)", color: "#fff",
-                  borderRadius: 999, padding: "2px 7px", fontSize: 9.5, fontWeight: 700, fontFamily: "Nunito, sans-serif",
-                }}>{getProductImages(p).length} photos</div>
-              )}
-            </div>
-            <div style={{ fontFamily: "Nunito, sans-serif", fontWeight: 800, fontSize: 14, color: COLORS.cocoa, marginTop: 6 }}>{p.name}</div>
-            <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 12, color: COLORS.magenta, fontWeight: 700 }}>
-              {Number(p.discountPercent) > 0 ? (
-                <>₹{effectivePrice(p)} <span style={{ textDecoration: "line-through", color: "#B08A7A", fontWeight: 600 }}>₹{p.price}</span></>
-              ) : (
-                <>₹{p.price}</>
-              )} · {p.weight || p.unit}
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-              <span style={{ fontFamily: "Nunito, sans-serif", fontSize: 11.5, color: "#8A6C5F", fontWeight: 700 }}>Stock:</span>
-              <input
-                type="number" value={p.stock ?? 0}
-                onChange={(e) => updateProduct(p.id, { stock: Number(e.target.value) || 0 })}
-                style={{ width: 60, padding: "4px 6px", borderRadius: 8, border: `2px solid ${COLORS.line}`, fontFamily: "Nunito, sans-serif", fontWeight: 800, fontSize: 12.5 }}
-              />
-              {(p.stock ?? 0) <= 0 && <Pill bg="#F3E1E1" color="#A03030">Out of stock</Pill>}
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
-              <span style={{ fontFamily: "Nunito, sans-serif", fontSize: 11.5, color: "#8A6C5F", fontWeight: 700 }}>Discount %:</span>
-              <input
-                type="number" value={p.discountPercent ?? 0}
-                onChange={(e) => updateProduct(p.id, { discountPercent: Math.min(90, Math.max(0, Number(e.target.value) || 0)) })}
-                style={{ width: 60, padding: "4px 6px", borderRadius: 8, border: `2px solid ${COLORS.line}`, fontFamily: "Nunito, sans-serif", fontWeight: 800, fontSize: 12.5 }}
-              />
-              {Number(p.discountPercent) > 0 && <Pill bg="#E3F3F1" color={COLORS.mint}>{p.discountPercent}% OFF</Pill>}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div style={{ background: "linear-gradient(135deg, #fff, #fff4f8)", border: `2px solid ${COLORS.line}`, borderRadius: 18, padding: 18, marginTop: 10 }}>
-        <div style={{ fontFamily: "Nunito, sans-serif", fontWeight: 900, color: COLORS.cocoa, marginBottom: 8 }}>What this helps the admin do</div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px,1fr))", gap: 12 }}>
-          {[
-            "Manage product stock and pricing",
-            "Upload product photos quickly",
-            "Run seasonal offers and promotions",
-            "Verify UTR/payment proof before accepting orders",
-            "Track order updates and customer communication",
-          ].map((item) => (
-            <div key={item} style={{ background: "#fff", border: `2px solid ${COLORS.line}`, borderRadius: 12, padding: "10px 12px", fontFamily: "Nunito, sans-serif", fontSize: 12.5, fontWeight: 700, color: COLORS.cocoa }}>
-              ✓ {item}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div style={{ background: COLORS.blush, border: `2px solid ${COLORS.line}`, borderRadius: 16, padding: 16, marginTop: 24 }}>
-        <div style={{ fontFamily: "Nunito, sans-serif", fontWeight: 800, color: COLORS.cocoa, marginBottom: 6 }}>Google Sheets Sync</div>
-        <p style={{ fontFamily: "Nunito, sans-serif", fontSize: 12, color: "#6B4A3E", marginBottom: 10 }}>
-          Paste your deployed Google Apps Script Web App URL here so every order is written straight to your Google Sheet and the customer gets an email notification.
-        </p>
-        <Field label="Apps Script Web App URL" value={sheetUrl} onChange={(e) => setSheetUrl(e.target.value)} placeholder="https://script.google.com/macros/s/XXXX/exec" />
-        <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 11.5, color: sheetUrl ? "#2E8F55" : "#B08A7A", fontWeight: 700 }}>
-          {sheetUrl ? "✓ Orders will sync to your Google Sheet." : "Not connected — orders are currently stored in this demo session only."}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function AdminOffersPage({ offers, addOffer, deleteOffer, updateOffer, callSheet, pushToast, sheetUrl }) {
-  const [form, setForm] = useState({ title: "", description: "", color: "#FBE3EA", image: "", active: true });
-  const [imgError, setImgError] = useState("");
-  const [uploading, setUploading] = useState(false);
-
-  const handleImage = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setImgError("");
-
-    if (!sheetUrl) {
-      // demo mode — preview only, not persisted
-      const previewReader = new FileReader();
-      previewReader.onload = () => setForm((f) => ({ ...f, image: previewReader.result }));
-      previewReader.readAsDataURL(file);
-      return;
-    }
-
-    // Always upload if sheetUrl is set
-    setUploading(true);
-    try {
-      const compressed = await compressImageFile(file, 900, 0.7);
-      const url = await uploadImageInChunks(compressed, callSheet);
-      if (!url || !url.startsWith("http")) throw new Error("Invalid image URL returned from server.");
-      setForm((f) => ({ ...f, image: url }));
-      pushToast("✓ Offer image uploaded!");
-    } catch (err) {
-      setImgError(err.message || "Couldn't upload the offer image.");
-      setForm((f) => ({ ...f, image: "" }));
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const submit = () => {
-    if (!form.title.trim()) return;
-
-    // Warn if image looks incomplete
-    if (form.image && form.image.startsWith("data:")) {
-      setImgError("Please wait for the image upload to finish before adding the offer.");
-      return;
-    }
-
-    // Require upload to finish if started
-    if (uploading) {
-      setImgError("Please wait for the image upload to finish.");
-      return;
-    }
-
-    addOffer({ ...form, title: form.title.trim(), description: form.description.trim() || "Limited-time offer" });
-    setForm({ title: "", description: "", color: "#FBE3EA", image: "", active: true });
-    setImgError("");
-  };
-
-  return (
-    <div style={{ maxWidth: 960, margin: "0 auto", padding: "24px 18px 60px" }}>
-      <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 24, color: COLORS.cocoa, marginBottom: 4 }}>Admin · Offers</h2>
-      <p style={{ fontFamily: "Nunito, sans-serif", fontSize: 13, color: "#8A6C5F", marginBottom: 18 }}>Add banners and promotions that appear immediately on the customer storefront.</p>
-
-      <div style={{ background: "#fff", border: `2px solid ${COLORS.line}`, borderRadius: 20, padding: 20, marginBottom: 24 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: 12 }}>
-          <Field label="Offer Title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Weekend Treat Bundle" />
-          <Field label="Card Color" value={form.color} onChange={(e) => setForm({ ...form, color: e.target.value })} type="color" />
-        </div>
-        <Field label="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Free shipping or 20% off selected cookies" />
-
-        <label style={{ display: "block", marginBottom: 14 }}>
-          <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, color: COLORS.cocoa, marginBottom: 6 }}>Offer Image</span>
-          <input type="file" accept="image/*" onChange={handleImage} disabled={uploading} style={{ fontFamily: "Nunito, sans-serif", fontSize: 13 }} />
-          {uploading && <div style={{ color: COLORS.mint, fontSize: 12, fontWeight: 700, marginTop: 6 }}>Uploading image...</div>}
-          {imgError && <div style={{ color: "#C6296B", fontSize: 12, fontWeight: 700, marginTop: 6 }}>{imgError}</div>}
-          {form.image && <img src={form.image} alt="offer preview" style={{ width: 110, height: 110, objectFit: "contain", borderRadius: 14, marginTop: 10, border: `2px solid ${COLORS.line}`, background: COLORS.blush }} />}
-        </label>
-
-        <label style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, fontFamily: "Nunito, sans-serif", fontWeight: 800, color: COLORS.cocoa }}>
-          <input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} />
-          Show this offer live on the customer page
-        </label>
-
-        <Button variant="primary" onClick={submit} disabled={uploading}><Plus size={15} /> Add Offer</Button>
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
-        {offers.map((offer) => (
-          <div key={offer.id} style={{ background: offer.color || COLORS.blush, border: `2px solid ${COLORS.line}`, borderRadius: 18, padding: 14 }}>
-            {offer.image ? (
-              <img src={offer.image} alt={offer.title} style={{ width: "100%", height: 110, borderRadius: 12, marginBottom: 10, objectFit: "cover", objectPosition: "center", border: `2px solid rgba(74,42,34,.08)`, boxSizing: "border-box" }} />
-            ) : <div style={{ height: 110, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32, background: "rgba(255,255,255,.32)", borderRadius: 12, marginBottom: 10 }}>🎉</div>}
-            <div style={{ fontFamily: "Nunito, sans-serif", fontWeight: 900, fontSize: 13, color: COLORS.cocoa, textTransform: "uppercase" }}>{offer.title}</div>
-            <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 12.5, color: "#6B4A3E", marginTop: 4 }}>{offer.description}</div>
-            <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <label style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: "Nunito, sans-serif", fontWeight: 800, fontSize: 11, color: COLORS.cocoa }}>
-                <input type="checkbox" checked={offer.active !== false} onChange={(e) => updateOffer(offer.id, { active: e.target.checked })} />
-                Live
-              </label>
-              <button onClick={() => deleteOffer(offer.id)} style={{ background: "none", border: "none", color: "#C6296B", cursor: "pointer", fontFamily: "Nunito, sans-serif", fontWeight: 900 }}>
-                Remove
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function AdminOrdersPage({ orders, updateStatus }) {
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-
-  const postAcceptStatuses = ["Confirmed", "Preparing", "Out for Delivery", "Delivered"];
-
-  // Filter orders by date range
-  const filteredOrders = orders.filter((o) => {
-    const orderDate = new Date(o.date);
-    if (startDate) {
-      const start = new Date(startDate);
-      start.setHours(0, 0, 0, 0);
-      if (orderDate < start) return false;
-    }
-    if (endDate) {
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999);
-      if (orderDate > end) return false;
-    }
-    return true;
-  });
-
-  const pending = filteredOrders.filter((o) => o.status === "Pending");
-  const rest = filteredOrders.filter((o) => o.status !== "Pending");
-
-  const OrderCard = ({ o }) => (
-    <div style={{ background: "#fff", border: `2px solid ${o.status === "Pending" ? COLORS.marigold : COLORS.line}`, borderRadius: 16, padding: 16, marginBottom: 12 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-        <div>
-          <div style={{ fontFamily: "Nunito, sans-serif", fontWeight: 800, color: COLORS.cocoa }}>#{o.id} · {o.address.name}</div>
-          <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 12, color: "#8A6C5F" }}>{o.address.line1}, {o.address.city} - {o.address.pincode} · 📞 {o.address.phone}</div>
-          <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 12, color: "#8A6C5F", marginTop: 4 }}>{new Date(o.date).toLocaleString()}</div>
-        </div>
-
-        {o.status === "Pending" ? (
-          <div style={{ display: "flex", gap: 8 }}>
-            <Button variant="ghost" style={{ padding: "8px 12px", fontSize: 12.5, color: "#A03030", borderColor: "#F1C6C6" }} onClick={() => updateStatus(o.id, "Declined")}>
-              Decline
-            </Button>
-            <Button variant="primary" style={{ padding: "8px 14px", fontSize: 12.5 }} onClick={() => updateStatus(o.id, "Confirmed")}>
-              <Check size={14} /> Verify Payment & Accept
-            </Button>
-          </div>
-        ) : o.status === "Declined" ? (
-          <Pill color={statusColor(o.status)} bg="#F3E1E1">Declined</Pill>
-        ) : (
-          <select value={o.status} onChange={(e) => updateStatus(o.id, e.target.value)} style={{
-            height: 34, borderRadius: 10, border: `2px solid ${COLORS.line}`, fontFamily: "Nunito, sans-serif", fontWeight: 800,
-            fontSize: 12.5, color: statusColor(o.status), padding: "0 8px", background: "#fff",
-          }}>
-            {postAcceptStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-        )}
-      </div>
-      <div style={{ marginTop: 10, fontFamily: "Nunito, sans-serif", fontSize: 13, color: "#6B4A3E" }}>
-        {o.itemsText ? (
-          <div>{o.itemsText}</div>
-        ) : (
-          (o.items || []).map((i) => <div key={i.id}>{i.name} × {i.qty} — ₹{i.price * i.qty}</div>)
-        )}
-      </div>
-      <div style={{ marginTop: 6, fontWeight: 800, color: COLORS.magenta, fontFamily: "Nunito, sans-serif" }}>Total ₹{o.total}</div>
-      {(o.utr || o.paymentMethod) && (
-        <div style={{ marginTop: 8, fontFamily: "Nunito, sans-serif", fontSize: 12, color: "#8A6C5F", display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
-          {o.paymentMethod && <span>💳 {o.paymentMethod}</span>}
-          {o.utr && <span>UTR: <b style={{ color: COLORS.cocoa }}>{o.utr}</b></span>}
-          {o.paymentStatus && <Pill bg={o.paymentStatus === "Paid" ? "#E3F3F1" : "#FFF1D9"} color={o.paymentStatus === "Paid" ? COLORS.mint : "#B4720F"}>{o.paymentStatus}</Pill>}
-          {o.screenshotUrl && (
-            <a href={o.screenshotUrl} target="_blank" rel="noopener noreferrer" style={{ color: COLORS.magenta, fontWeight: 800, textDecoration: "underline" }}>
-              View payment screenshot
-            </a>
-          )}
-        </div>
-      )}
-    </div>
-  );
-
-  return (
-    <div style={{ maxWidth: 900, margin: "0 auto", padding: "24px 18px 60px" }}>
-      <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 24, color: COLORS.cocoa, marginBottom: 4 }}>Admin · All Orders</h2>
-      <p style={{ fontFamily: "Nunito, sans-serif", fontSize: 13, color: "#8A6C5F", marginBottom: 18 }}>New orders arrive as Pending — accept them to confirm and notify the customer.</p>
-
-      <div style={{ background: "#fff", border: `2px solid ${COLORS.line}`, borderRadius: 16, padding: 16, marginBottom: 20 }}>
-        <div style={{ fontFamily: "Nunito, sans-serif", fontWeight: 800, color: COLORS.cocoa, marginBottom: 12 }}>📅 Filter by Date</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 12, alignItems: "flex-end" }}>
-          <div>
-            <label style={{ display: "block", fontFamily: "Nunito, sans-serif", fontSize: 12.5, fontWeight: 800, color: COLORS.cocoa, marginBottom: 6 }}>From</label>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              style={{ width: "100%", padding: "8px 10px", borderRadius: 10, border: `2px solid ${COLORS.line}`, fontFamily: "Nunito, sans-serif", fontSize: 13 }}
-            />
-          </div>
-          <div>
-            <label style={{ display: "block", fontFamily: "Nunito, sans-serif", fontSize: 12.5, fontWeight: 800, color: COLORS.cocoa, marginBottom: 6 }}>To</label>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              style={{ width: "100%", padding: "8px 10px", borderRadius: 10, border: `2px solid ${COLORS.line}`, fontFamily: "Nunito, sans-serif", fontSize: 13 }}
-            />
-          </div>
-          <button
-            onClick={() => { setStartDate(""); setEndDate(""); }}
-            style={{ padding: "8px 14px", borderRadius: 10, border: `2px solid ${COLORS.line}`, background: "#fff", fontFamily: "Nunito, sans-serif", fontWeight: 800, fontSize: 12.5, color: COLORS.cocoa, cursor: "pointer" }}
-          >
-            Clear
-          </button>
-        </div>
-        <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 12, color: "#8A6C5F", marginTop: 8 }}>
-          Showing {filteredOrders.length} of {orders.length} orders
-        </div>
-      </div>
-
-      {pending.length > 0 && (
-        <>
-          <div style={{ fontFamily: "Nunito, sans-serif", fontWeight: 800, fontSize: 13, color: "#B4720F", marginBottom: 10 }}>
-            🔔 Awaiting your response ({pending.length})
-          </div>
-          {pending.slice().reverse().map((o) => <OrderCard key={o.id} o={o} />)}
-          <div style={{ margin: "18px 0" }} />
-        </>
-      )}
-
-      {filteredOrders.length === 0 ? (
-        <div style={{ color: "#8A6C5F", fontFamily: "Nunito, sans-serif", textAlign: "center", padding: "40px 0" }}>No orders found for the selected date range.</div>
-      ) : (
-        rest.slice().reverse().map((o) => <OrderCard key={o.id} o={o} />)
-      )}
-    </div>
-  );
-}
-
-/* ---------------- App shell ---------------- */
 
 export default function LittleTreatsApp() {
   const [page, setPage] = useState("home");
   const [users, setUsers] = useState([{ id: "admin1", name: "Jan", email: ADMIN_EMAIL, password: ADMIN_PASSWORD, role: "admin" }]);
   const [user, setUser] = useState(null);
   const [products, setProducts] = useState(SEED_PRODUCTS);
-  const [cart, setCart] = useState([]); // {id, qty}
+  const [cart, setCart] = useState([]);
   const [orders, setOrders] = useState([]);
   const [offers, setOffers] = useState([]);
   const [lastOrder, setLastOrder] = useState(null);
@@ -1390,16 +49,33 @@ export default function LittleTreatsApp() {
   const [toasts, setToasts] = useState([]);
   const [authBusy, setAuthBusy] = useState(false);
 
+  useEffect(() => {
+    if (!sheetUrl) return;
+
+    (async () => {
+      const result = await callSheet({ action: "getProducts" });
+      if (result.ok && Array.isArray(result.products) && result.products.length) {
+        setProducts(result.products.map((p) => ({ ...p, image: normalizeImageUrl(p.image) })));
+      }
+    })();
+
+    (async () => {
+      const result = await callSheet({ action: "getOffers" });
+      if (result.ok && Array.isArray(result.offers)) setOffers(result.offers);
+    })();
+
+    (async () => {
+      const result = await callSheet({ action: "getOrders" });
+      if (result.ok && Array.isArray(result.orders)) setOrders(result.orders);
+    })();
+  }, [sheetUrl]);
+
   const pushToast = (msg) => {
     const id = Date.now() + Math.random();
     setToasts((t) => [...t, { id, msg }]);
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3200);
   };
 
-  // Google Apps Script Web Apps are reliable for browser calls when using the
-  // legacy GET + data query-string pattern. POST requests with JSON bodies trigger
-  // CORS preflight failures for this deployment type, so large uploads and product
-  // syncing must stay on the GET route.
   const callSheet = async (payload) => {
     if (!sheetUrl) return { ok: false, error: "No Sheets URL configured." };
     try {
@@ -1417,39 +93,6 @@ export default function LittleTreatsApp() {
     }
   };
 
-  // Load the real product list from the Sheet on startup (if connected).
-  // Falls back to the local seed list if no Sheets URL is set or it fails.
-  React.useEffect(() => {
-    if (!sheetUrl) return;
-    (async () => {
-      const result = await callSheet({ action: "getProducts" });
-      if (result.ok && Array.isArray(result.products) && result.products.length) {
-        console.log("✓ Loaded products from Google Sheets:", result.products.map(p => ({ id: p.id, name: p.name, image: p.image ? "✓ has image" : "❌ no image" })));
-        // Ensure all image URLs are proper strings and compatible with browser image tags.
-        const withImages = result.products.map(p => ({
-          ...p,
-          image: normalizeImageUrl(p.image),
-        }));
-        setProducts(withImages);
-      }
-    })();
-    (async () => {
-      const result = await callSheet({ action: "getOffers" });
-      if (result.ok && Array.isArray(result.offers)) {
-        setOffers(result.offers);
-      }
-    })();
-    // Also load existing orders so Admin and customers see orders placed
-    // across past sessions/devices, not just this browser tab.
-    (async () => {
-      const result = await callSheet({ action: "getOrders" });
-      if (result.ok && Array.isArray(result.orders)) {
-        setOrders(result.orders);
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const addToCart = (id) => {
     setCart((c) => {
       const found = c.find((i) => i.id === id);
@@ -1457,28 +100,35 @@ export default function LittleTreatsApp() {
       return [...c, { id, qty: 1 }];
     });
   };
+
   const updateQty = (id, qty) => {
     if (qty <= 0) return setCart((c) => c.filter((i) => i.id !== id));
     setCart((c) => c.map((i) => (i.id === id ? { ...i, qty } : i)));
   };
+
   const removeFromCart = (id) => setCart((c) => c.filter((i) => i.id !== id));
 
-  // Auth: uses the Sheet as the real source of truth when connected
-  // (passwords are salted + SHA-256 hashed server-side, never stored in
-  // plain text), falling back to local in-memory demo accounts otherwise.
   const loginUser = async (email, password) => {
     setAuthBusy(true);
     try {
       if (sheetUrl) {
         const result = await callSheet({ action: "loginUser", email, password });
-        if (result.ok) { setUser(result.user); pushToast(`Welcome, ${result.user.name.split(" ")[0]}!`); return { ok: true, user: result.user }; }
+        if (result.ok) {
+          setUser(result.user);
+          pushToast(`Welcome, ${result.user.name.split(" ")[0]}!`);
+          return { ok: true, user: result.user };
+        }
         return { ok: false, error: result.error || "Login failed." };
       }
+
       const found = users.find((u) => u.email === email && u.password === password);
       if (!found) return { ok: false, error: "Invalid email or password." };
-      setUser(found); pushToast(`Welcome, ${found.name.split(" ")[0]}!`);
+      setUser(found);
+      pushToast(`Welcome, ${found.name.split(" ")[0]}!`);
       return { ok: true, user: found };
-    } finally { setAuthBusy(false); }
+    } finally {
+      setAuthBusy(false);
+    }
   };
 
   const registerUser = async (name, email, password, address = {}) => {
@@ -1486,35 +136,77 @@ export default function LittleTreatsApp() {
     try {
       if (sheetUrl) {
         const result = await callSheet({ action: "registerUser", user: { name, email, password, ...address } });
-        if (result.ok) { setUser(result.user); pushToast(`Welcome, ${result.user.name.split(" ")[0]}!`); return { ok: true }; }
+        if (result.ok) {
+          setUser(result.user);
+          pushToast(`Welcome, ${result.user.name.split(" ")[0]}!`);
+          return { ok: true };
+        }
         return { ok: false, error: result.error || "Registration failed." };
       }
+
       if (users.some((u) => u.email === email)) return { ok: false, error: "An account with this email already exists." };
       const newUser = { id: "u" + Date.now(), name, email, password, role: "user", ...address };
-      setUsers((arr) => [...arr, newUser]); setUser(newUser); pushToast(`Welcome, ${name.split(" ")[0]}!`);
+      setUsers((arr) => [...arr, newUser]);
+      setUser(newUser);
+      pushToast(`Welcome, ${name.split(" ")[0]}!`);
       return { ok: true };
-    } finally { setAuthBusy(false); }
+    } finally {
+      setAuthBusy(false);
+    }
   };
 
-  const logout = () => { setUser(null); setPage("home"); };
+  const resetPassword = async (email, newPassword) => {
+    if (sheetUrl) {
+      const result = await callSheet({ action: "resetPassword", email, newPassword });
+      return result;
+    }
+    setUsers((arr) => arr.map((u) => (u.email === email ? { ...u, password: newPassword } : u)));
+    return { ok: true };
+  };
+
+  const logout = () => {
+    setUser(null);
+    setPage("home");
+  };
 
   const addProduct = async (p) => {
     if (sheetUrl) {
       const result = await callSheet({ action: "addProduct", product: p });
-      if (result.ok) { setProducts((arr) => [...arr, { ...p, id: result.id }]); pushToast(`${p.name} added to storefront`); }
-      else pushToast(result.error || "Couldn't add product.");
+      if (result.ok) {
+        setProducts((arr) => [...arr, { ...p, id: result.id }]);
+        pushToast(`${p.name} added to storefront`);
+      } else {
+        pushToast(result.error || "Couldn't add product.");
+      }
       return;
     }
-    setProducts((arr) => [...arr, p]); pushToast(`${p.name} added to storefront`);
+
+    setProducts((arr) => [...arr, p]);
+    pushToast(`${p.name} added to storefront`);
+  };
+
+  const deleteProduct = async (id) => {
+    setProducts((arr) => arr.filter((p) => p.id !== id));
+    if (sheetUrl) callSheet({ action: "deleteProduct", id });
+  };
+
+  const updateProduct = async (id, patch) => {
+    setProducts((arr) => arr.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+    if (sheetUrl) callSheet({ action: "updateProduct", id, patch });
   };
 
   const addOffer = async (offer) => {
     if (sheetUrl) {
       const result = await callSheet({ action: "addOffer", offer });
-      if (result.ok) { setOffers((arr) => [...arr, { ...offer, id: result.id, active: offer.active !== false }]); pushToast(`${offer.title} added to homepage`); }
-      else pushToast(result.error || "Couldn't add offer.");
+      if (result.ok) {
+        setOffers((arr) => [...arr, { ...offer, id: result.id, active: offer.active !== false }]);
+        pushToast(`${offer.title} added to homepage`);
+      } else {
+        pushToast(result.error || "Couldn't add offer.");
+      }
       return;
     }
+
     setOffers((arr) => [...arr, { ...offer, id: "offer_" + Date.now(), active: offer.active !== false }]);
     pushToast(`${offer.title} added to homepage`);
   };
@@ -1530,40 +222,12 @@ export default function LittleTreatsApp() {
     if (sheetUrl) callSheet({ action: "updateOffer", id, patch });
   };
 
-  const deleteProduct = async (id) => {
-    setProducts((arr) => arr.filter((p) => p.id !== id));
-    if (sheetUrl) callSheet({ action: "deleteProduct", id });
-  };
-
-  const updateProduct = async (id, patch) => {
-    setProducts((arr) => arr.map((p) => (p.id === id ? { ...p, ...patch } : p)));
-    if (sheetUrl) callSheet({ action: "updateProduct", id, patch });
-  };
-
-  const resetPassword = async (email, newPassword) => {
-    if (sheetUrl) {
-      const result = await callSheet({ action: "resetPassword", email, newPassword });
-      return result;
-    }
-    setUsers((arr) => arr.map((u) => (u.email === email ? { ...u, password: newPassword } : u)));
-    return { ok: true };
-  };
-
-  // Places the order via the Apps Script backend using the shared callSheet
-  // helper (readable JSON response, not fire-and-forget), so we can react to
-  // a real error — e.g. a UTR number that's already been used elsewhere.
   const placeOrder = async (address, payment = {}) => {
     const items = cart.map((c) => {
       const p = products.find((pp) => pp.id === c.id);
       return { id: p.id, name: p.name, price: effectivePrice(p), qty: c.qty };
     });
 
-    // Quick client-side pre-checks purely for fast UX (no round trip needed
-    // to tell someone their cart is obviously short on stock). These are
-    // NOT the source of truth — when the Sheet is connected, the backend
-    // re-validates stock and the UTR against the live data inside a lock,
-    // because two customers could be checking out at the same instant with
-    // stale/cached numbers on the client.
     const insufficient = items.find((i) => {
       const p = products.find((pp) => pp.id === i.id);
       return (p?.stock ?? 0) < i.qty;
@@ -1575,22 +239,21 @@ export default function LittleTreatsApp() {
     }
 
     const utrCheck = String(payment.utr || "").trim();
-    if (utrCheck && orders.some((o) => String(o.utr || "").trim().toLowerCase() === utrCheck.toLowerCase())) {
+    const duplicateUtr = orders.some((o) => String(o.utr || "").trim().toLowerCase() === utrCheck.toLowerCase());
+    if (utrCheck && duplicateUtr) {
       const msg = "This UTR/reference number has already been used for another order.";
       return { ok: false, error: msg };
     }
 
     const total = items.reduce((s, i) => s + i.price * i.qty, 0);
     let order = {
-      // Placeholder ID for demo mode (no Sheet connected). When the Sheet IS
-      // connected, this gets overwritten below with the server-assigned ID —
-      // never trust a client-generated ID as the real order number, since
-      // two orders placed around the same moment could otherwise collide.
       id: String(Date.now()).slice(-6),
       userId: user.id,
       userName: user.name,
       userEmail: user.email,
-      items, total, address,
+      items,
+      total,
+      address,
       status: "Pending",
       date: new Date().toISOString(),
       utr: utrCheck,
@@ -1602,32 +265,20 @@ export default function LittleTreatsApp() {
 
     if (sheetUrl) {
       const result = await callSheet({ action: "newOrder", order });
-      if (!result.ok) {
-        return { ok: false, error: result.error || "Couldn't place order. Please try again." };
-      }
-      // The backend validated stock/UTR and decremented stock atomically,
-      // and assigned the real order ID — adopt its version of the order.
+      if (!result.ok) return { ok: false, error: result.error || "Couldn't place order. Please try again." };
       order = result.order || { ...order, id: result.id || order.id };
     }
 
     setOrders((o) => [...o, order]);
-    // Update local product stock for a snappy UI. This is optimistic/local
-    // only — when the Sheet is connected we deliberately do NOT push this
-    // number back with updateProduct, because the backend already applied
-    // the authoritative decrement inside its lock; overwriting it from here
-    // would reintroduce the exact race condition (two customers' orders
-    // stomping on each other's stock numbers) that the backend fix prevents.
     setProducts((arr) => arr.map((p) => {
       const bought = items.find((i) => i.id === p.id);
       if (!bought) return p;
-      const newStock = Math.max(0, (p.stock ?? 0) - bought.qty);
-      return { ...p, stock: newStock };
+      return { ...p, stock: Math.max(0, (p.stock ?? 0) - bought.qty) };
     }));
     setLastOrder(order);
     setCart([]);
 
-    // Remember this address on the account for next time.
-    setUser((u) => u ? { ...u, phone: address.phone, address: address.line1, city: address.city, pincode: address.pincode } : u);
+    setUser((u) => (u ? { ...u, phone: address.phone, address: address.line1, city: address.city, pincode: address.pincode } : u));
     if (sheetUrl) callSheet({ action: "saveUserAddress", email: user.email, address });
 
     pushToast(`Order #${order.id} received — pending confirmation!`);
@@ -1635,8 +286,6 @@ export default function LittleTreatsApp() {
     return { ok: true, order };
   };
 
-  // Pushes an order status change to the sheet too, so Admin decisions
-  // (accept/decline/progress) stay reflected in your Google Sheet.
   const syncStatusToSheet = async (orderId, status, orderRef, paymentStatus) => {
     if (!sheetUrl) return;
     try {
@@ -1647,9 +296,6 @@ export default function LittleTreatsApp() {
     }
   };
 
-  // Accepting an order IS the manual payment-verification step: Admin has
-  // checked the UTR against their bank statement, so acceptance marks the
-  // payment as verified/Paid at the same time as confirming the order.
   const updateStatus = (id, status) => {
     const orderRef = orders.find((o) => o.id === id);
     const paymentStatus = status === "Confirmed" ? "Paid" : orderRef?.paymentStatus;
@@ -1675,13 +321,30 @@ export default function LittleTreatsApp() {
     }
   } else {
     switch (page) {
-      case "products": content = <ProductsPage products={products} addToCart={addToCart} toast={pushToast} onView={setViewProduct} />; break;
-      case "cart": content = <CartPage cart={cart} products={products} updateQty={updateQty} removeFromCart={removeFromCart} setPage={setPage} user={user} />; break;
-      case "checkout": content = user ? <CheckoutPage cart={cart} products={products} placeOrder={placeOrder} setPage={setPage} user={user} pushToast={pushToast} callSheet={callSheet} /> : <LoginPage setPage={setPage} loginUser={loginUser} registerUser={registerUser} resetPassword={resetPassword} authBusy={authBusy} />; break;
-      case "confirmation": content = <ConfirmationPage lastOrder={lastOrder} setPage={setPage} />; break;
-      case "orders": content = user ? <OrdersPage orders={orders} user={user} setPage={setPage} /> : <LoginPage setPage={setPage} loginUser={loginUser} registerUser={registerUser} resetPassword={resetPassword} authBusy={authBusy} />; break;
-      case "login": content = <LoginPage setPage={setPage} loginUser={loginUser} registerUser={registerUser} resetPassword={resetPassword} authBusy={authBusy} />; break;
-      default: content = <HomePage setPage={setPage} offers={offers} />;
+      case "products":
+        content = <ProductsPage products={products} addToCart={addToCart} toast={pushToast} onView={setViewProduct} />;
+        break;
+      case "cart":
+        content = <CartPage cart={cart} products={products} updateQty={updateQty} removeFromCart={removeFromCart} setPage={setPage} user={user} />;
+        break;
+      case "checkout":
+        content = user ? (
+          <CheckoutPage cart={cart} products={products} placeOrder={placeOrder} setPage={setPage} user={user} pushToast={pushToast} callSheet={callSheet} />
+        ) : (
+          <LoginPage setPage={setPage} loginUser={loginUser} registerUser={registerUser} resetPassword={resetPassword} authBusy={authBusy} />
+        );
+        break;
+      case "confirmation":
+        content = <ConfirmationPage lastOrder={lastOrder} setPage={setPage} />;
+        break;
+      case "orders":
+        content = user ? <OrdersPage orders={orders} user={user} setPage={setPage} /> : <LoginPage setPage={setPage} loginUser={loginUser} registerUser={registerUser} resetPassword={resetPassword} authBusy={authBusy} />;
+        break;
+      case "login":
+        content = <LoginPage setPage={setPage} loginUser={loginUser} registerUser={registerUser} resetPassword={resetPassword} authBusy={authBusy} />;
+        break;
+      default:
+        content = <HomePage setPage={setPage} offers={offers} />;
     }
   }
 
@@ -1690,16 +353,10 @@ export default function LittleTreatsApp() {
       <Header page={page} setPage={setPage} user={user} logout={logout} cartCount={cartCount} />
       {content}
       <Toast toasts={toasts} />
-      <ProductGalleryModal
-        product={viewProduct}
-        addToCart={addToCart}
-        toast={pushToast}
-        onClose={() => setViewProduct(null)}
-      />
+      <ProductGalleryModal product={viewProduct} addToCart={addToCart} toast={pushToast} onClose={() => setViewProduct(null)} />
       <div style={{ textAlign: "center", padding: "20px 0 30px", fontFamily: "Nunito, sans-serif", fontSize: 12, color: "#B08A7A" }}>
         🍪 Little Treats by Jan — Thank you for supporting homemade! 💗
       </div>
     </div>
   );
 }
-//update
