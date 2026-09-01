@@ -5,6 +5,13 @@ import {
   ChevronLeft, ChevronRight, Star, Lock, Mail, Sparkles, ClipboardList, Bell,
   X, ZoomIn, ImagePlus
 } from "lucide-react";
+import { COLORS } from "./theme";
+import { Button } from "./components/ui/Button";
+import { Pill } from "./components/ui/Pill";
+import { Field } from "./components/ui/Field";
+import { ProductCard } from "./components/products/ProductCard";
+import { ProductImage } from "./components/products/ProductImage";
+import { effectivePrice, getProductImages, normalizeImageUrl } from "./utils/productUtils";
 
 /* ---------------------------------------------------------------
    LITTLE TREATS BY JAN — storefront + admin
@@ -96,17 +103,6 @@ async function uploadImageInChunks(dataUrl, callSheet, onProgress) {
   return final.url;
 }
 
-const COLORS = {
-  magenta: "#C6296B",
-  magentaDark: "#9E1E54",
-  marigold: "#E8A33D",
-  cocoa: "#4A2A22",
-  cream: "#FCF1E6",
-  blush: "#FBE3EA",
-  mint: "#2E8F8B",
-  line: "#F0D9C8",
-};
-
 /* ---------------- Seed data ---------------- */
 
 const SEED_PRODUCTS = [
@@ -119,38 +115,6 @@ const SEED_PRODUCTS = [
 ];
 
 // Rounds to the nearest rupee for a clean displayed/charged price.
-function effectivePrice(product) {
-  const pct = Number(product?.discountPercent) || 0;
-  if (pct <= 0) return product.price;
-  return Math.round(product.price * (1 - pct / 100));
-}
-
-function normalizeImageUrl(image) {
-  const raw = String(image || "").trim();
-  if (!raw) return "";
-
-  const fileIdMatch = raw.match(/(?:id=|\/d\/|file\/d\/)([A-Za-z0-9_-]{10,})/);
-  if (fileIdMatch) {
-    const fileId = fileIdMatch[1];
-    return `https://drive.google.com/thumbnail?id=${fileId}`;
-  }
-
-  return raw;
-}
-
-// Returns the full gallery of photo URLs for a product. Supports the newer
-// multi-photo "images" field (array, or a "|"-joined string when it round-trips
-// through the Sheet as plain text) and falls back to the single legacy "image"
-// field for older products that only ever had one photo.
-function getProductImages(p) {
-  if (!p) return [];
-  let list = [];
-  if (Array.isArray(p.images)) list = p.images;
-  else if (typeof p.images === "string" && p.images.trim()) list = p.images.split("|");
-  else if (p.image) list = [p.image];
-  return list.map(normalizeImageUrl).filter((u) => u && u.trim().length > 0);
-}
-
 const ADMIN_EMAIL = "admin@littletreats.com";
 const ADMIN_PASSWORD = "admin123";
 
@@ -163,63 +127,6 @@ function Ribbon() {
       <Heart size={16} color={COLORS.magenta} fill={COLORS.magenta} />
       <div style={{ flex: 1, height: 2, background: `linear-gradient(90deg, ${COLORS.marigold}, transparent)` }} />
     </div>
-  );
-}
-
-function Pill({ children, color = COLORS.magenta, bg = COLORS.blush }) {
-  return (
-    <span style={{
-      display: "inline-block", padding: "3px 10px", borderRadius: 999,
-      fontSize: 11, fontWeight: 800, letterSpacing: 0.4, textTransform: "uppercase",
-      color, background: bg,
-    }}>{children}</span>
-  );
-}
-
-function Button({ children, onClick, variant = "primary", style, disabled, type = "button", full }) {
-  const base = {
-    fontFamily: "Nunito, sans-serif", fontWeight: 800, fontSize: 14.5,
-    padding: "12px 20px", borderRadius: 14, border: "none", cursor: disabled ? "not-allowed" : "pointer",
-    display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
-    transition: "transform .12s ease, box-shadow .12s ease", opacity: disabled ? 0.55 : 1,
-    width: full ? "100%" : "auto",
-  };
-  const variants = {
-    primary: { background: `linear-gradient(135deg, ${COLORS.magenta}, ${COLORS.magentaDark})`, color: "#fff", boxShadow: "0 8px 20px rgba(198,41,107,.28)" },
-    gold: { background: `linear-gradient(135deg, ${COLORS.marigold}, #D98F22)`, color: "#4A2A22", boxShadow: "0 8px 18px rgba(232,163,61,.35)" },
-    ghost: { background: "#fff", color: COLORS.cocoa, border: `2px solid ${COLORS.line}` },
-    danger: { background: "#fff", color: "#C6296B", border: "2px solid #F4C4D6" },
-    dark: { background: COLORS.cocoa, color: "#fff" },
-  };
-  return (
-    <button
-      type={type}
-      disabled={disabled}
-      onClick={onClick}
-      style={{ ...base, ...variants[variant], ...style }}
-      onMouseDown={(e) => (e.currentTarget.style.transform = "scale(.97)")}
-      onMouseUp={(e) => (e.currentTarget.style.transform = "scale(1)")}
-    >
-      {children}
-    </button>
-  );
-}
-
-function Field({ label, ...props }) {
-  return (
-    <label style={{ display: "block", marginBottom: 14 }}>
-      <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, color: COLORS.cocoa, marginBottom: 6, letterSpacing: 0.2 }}>{label}</span>
-      <input
-        {...props}
-        style={{
-          width: "100%", padding: "11px 14px", borderRadius: 12, border: `2px solid ${COLORS.line}`,
-          fontFamily: "Nunito, sans-serif", fontSize: 14.5, outline: "none", boxSizing: "border-box",
-          background: "#fff", color: COLORS.cocoa,
-        }}
-        onFocus={(e) => (e.target.style.borderColor = COLORS.magenta)}
-        onBlur={(e) => (e.target.style.borderColor = COLORS.line)}
-      />
-    </label>
   );
 }
 
@@ -583,74 +490,6 @@ function ProductGalleryModal({ product, addToCart, toast, onClose }) {
 }
 
 /* ---------------- Products ---------------- */
-
-function ProductImage({ product, fallbackSize = 54, boxHeight = "100%" }) {
-  const src = normalizeImageUrl(product?.image || getProductImages(product)[0]);
-
-  if (src) {
-    return (
-      <img
-        src={src}
-        alt={product?.name || "Product"}
-        style={{ width: "100%", height: boxHeight, objectFit: "cover" }}
-        onError={(e) => {
-          e.currentTarget.style.display = "none";
-          e.currentTarget.parentElement.innerHTML = `<span style="font-size:${fallbackSize}px">${product?.emoji || "🍪"}</span>`;
-        }}
-      />
-    );
-  }
-
-  return <span style={{ fontSize: fallbackSize }}>{product?.emoji || "🍪"}</span>;
-}
-
-function ProductCard({ product, addToCart, toast, onView }) {
-  const outOfStock = (product.stock ?? 0) <= 0;
-  const hasDiscount = Number(product.discountPercent) > 0;
-  const finalPrice = effectivePrice(product);
-  const gallery = getProductImages(product);
-
-  return (
-    <div style={{ background: "#fff", borderRadius: 20, border: `2px solid ${COLORS.line}`, overflow: "hidden", display: "flex", flexDirection: "column", opacity: outOfStock ? 0.75 : 1 }}>
-      <div onClick={() => onView(product)} style={{ background: COLORS.blush, textAlign: "center", padding: 0, position: "relative", height: 150, overflow: "hidden", cursor: "pointer" }}>
-        {gallery.length > 0 ? (
-          <ProductImage product={product} fallbackSize={54} boxHeight="100%" />
-        ) : (
-          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <span style={{ fontSize: 54 }}>{product.emoji}</span>
-          </div>
-        )}
-        {outOfStock && (
-          <div style={{ position: "absolute", top: 8, right: 8, background: COLORS.cocoa, color: "#fff", fontSize: 10.5, fontWeight: 800, padding: "3px 9px", borderRadius: 999, letterSpacing: 0.3 }}>OUT OF STOCK</div>
-        )}
-        {hasDiscount && !outOfStock && (
-          <div style={{ position: "absolute", top: 8, left: 8, background: COLORS.mint, color: "#fff", fontSize: 10.5, fontWeight: 800, padding: "3px 9px", borderRadius: 999, letterSpacing: 0.3 }}>{product.discountPercent}% OFF</div>
-        )}
-        {gallery.length > 1 && (
-          <div style={{
-            position: "absolute", bottom: 8, right: 8, background: "rgba(74,42,34,.6)", color: "#fff",
-            borderRadius: 999, padding: "2px 8px", fontSize: 10, fontWeight: 700, fontFamily: "Nunito, sans-serif",
-          }}>1/{gallery.length}</div>
-        )}
-      </div>
-      <div style={{ padding: 16, display: "flex", flexDirection: "column", flex: 1 }}>
-        {product.tag && !outOfStock && <div style={{ marginBottom: 6 }}><Pill bg="#FFF1D9" color="#B4720F">{product.tag}</Pill></div>}
-        <div onClick={() => onView(product)} style={{ fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: 17, color: COLORS.cocoa, cursor: "pointer" }}>{product.name}</div>
-        <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 12, color: "#8A6C5F", margin: "4px 0 8px" }}>{product.desc}</div>
-        <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 11.5, color: "#B08A7A", marginBottom: 10 }}>{product.weight || product.unit}</div>
-        <div style={{ marginTop: "auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-            <span style={{ fontFamily: "'Playfair Display', serif", fontWeight: 800, fontSize: 19, color: COLORS.magenta }}>₹{finalPrice}</span>
-            {hasDiscount && <span style={{ fontFamily: "Nunito, sans-serif", fontSize: 12.5, color: "#B08A7A", textDecoration: "line-through" }}>₹{product.price}</span>}
-          </span>
-          <Button variant="primary" disabled={outOfStock} onClick={() => { addToCart(product.id); toast(`${product.name} added to cart`); }} style={{ padding: "9px 14px", fontSize: 13 }}>
-            {outOfStock ? "Unavailable" : (<><Plus size={14} /> Add</>)}
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function ProductsPage({ products, addToCart, toast, onView }) {
   return (
