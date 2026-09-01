@@ -1,8 +1,9 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef, useEffect } from "react";
 import {
   ShoppingCart, User, LogOut, Plus, Minus, Trash2, Check,
   MapPin, Package, Settings, Home, Heart, Instagram, Phone,
-  ChevronLeft, Star, Lock, Mail, Sparkles, ClipboardList, Bell
+  ChevronLeft, ChevronRight, Star, Lock, Mail, Sparkles, ClipboardList, Bell,
+  X, ZoomIn, ImagePlus
 } from "lucide-react";
 
 /* ---------------------------------------------------------------
@@ -135,6 +136,19 @@ function normalizeImageUrl(image) {
   }
 
   return raw;
+}
+
+// Returns the full gallery of photo URLs for a product. Supports the newer
+// multi-photo "images" field (array, or a "|"-joined string when it round-trips
+// through the Sheet as plain text) and falls back to the single legacy "image"
+// field for older products that only ever had one photo.
+function getProductImages(p) {
+  if (!p) return [];
+  let list = [];
+  if (Array.isArray(p.images)) list = p.images;
+  else if (typeof p.images === "string" && p.images.trim()) list = p.images.split("|");
+  else if (p.image) list = [p.image];
+  return list.map(normalizeImageUrl).filter((u) => u && u.trim().length > 0);
 }
 
 const ADMIN_EMAIL = "admin@littletreats.com";
@@ -387,9 +401,190 @@ function HomePage({ setPage, offers }) {
   );
 }
 
+/* ---------------- Product Gallery Modal ----------------
+   Opens when a shopper taps a product photo. Desktop: main image +
+   thumbnail strip below, hover to zoom, arrow buttons. Mobile: swipe
+   between photos with dot indicators instead of thumbnails. */
+function ProductGalleryModal({ product, addToCart, toast, onClose }) {
+  const [index, setIndex] = useState(0);
+  const [zoom, setZoom] = useState(null); // {x,y}% or null
+  const touchX = useRef(null);
+  const frameRef = useRef(null);
+
+  const images = useMemo(() => getProductImages(product), [product]);
+
+  useEffect(() => { setIndex(0); setZoom(null); }, [product?.id]);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!product) return;
+      if (e.key === "Escape") onClose();
+      if (e.key === "ArrowLeft") setIndex((i) => (i - 1 + images.length) % images.length);
+      if (e.key === "ArrowRight") setIndex((i) => (i + 1) % images.length);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [product, images.length, onClose]);
+
+  if (!product) return null;
+
+  const hasMultiple = images.length > 1;
+  const outOfStock = (product.stock ?? 0) <= 0;
+  const hasDiscount = Number(product.discountPercent) > 0;
+  const finalPrice = effectivePrice(product);
+
+  const go = (delta) => setIndex((i) => (i + delta + images.length) % images.length);
+
+  const handleMouseMove = (e) => {
+    if (!frameRef.current || images.length === 0) return;
+    const rect = frameRef.current.getBoundingClientRect();
+    const x = Math.min(100, Math.max(0, ((e.clientX - rect.left) / rect.width) * 100));
+    const y = Math.min(100, Math.max(0, ((e.clientY - rect.top) / rect.height) * 100));
+    setZoom({ x, y });
+  };
+
+  const handleTouchStart = (e) => { touchX.current = e.touches[0].clientX; };
+  const handleTouchEnd = (e) => {
+    if (touchX.current == null || !hasMultiple) return;
+    const dx = e.changedTouches[0].clientX - touchX.current;
+    if (dx > 45) go(-1);
+    else if (dx < -45) go(1);
+    touchX.current = null;
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, zIndex: 300, background: "rgba(42,20,15,.6)",
+        display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "#fff", borderRadius: 24, width: "100%", maxWidth: 620,
+          maxHeight: "92vh", overflowY: "auto", boxShadow: "0 30px 70px rgba(0,0,0,.4)",
+        }}
+      >
+        {/* main image */}
+        <div
+          ref={frameRef}
+          onMouseMove={handleMouseMove}
+          onMouseLeave={() => setZoom(null)}
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+          style={{
+            position: "relative", height: 320, borderTopLeftRadius: 24, borderTopRightRadius: 24,
+            overflow: "hidden", background: COLORS.blush, cursor: images.length ? "zoom-in" : "default",
+            touchAction: "pan-y",
+          }}
+        >
+          {images.length > 0 ? (
+            <div style={{
+              position: "absolute", inset: 0,
+              backgroundImage: `url(${images[index]})`,
+              backgroundRepeat: "no-repeat",
+              backgroundSize: zoom ? "220%" : "cover",
+              backgroundPosition: zoom ? `${zoom.x}% ${zoom.y}%` : "center",
+              transition: zoom ? "none" : "background-size .15s ease",
+            }} />
+          ) : (
+            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <span style={{ fontSize: 90 }}>{product.emoji}</span>
+            </div>
+          )}
+
+          <button onClick={onClose} style={{
+            position: "absolute", top: 12, right: 12, width: 34, height: 34, borderRadius: "50%",
+            background: "rgba(255,255,255,.92)", border: "none", cursor: "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center", color: COLORS.cocoa,
+          }}><X size={18} /></button>
+
+          {images.length > 0 && !zoom && (
+            <div style={{
+              position: "absolute", bottom: 10, right: 10, background: "rgba(74,42,34,.55)", color: "#fff",
+              borderRadius: 999, padding: "3px 9px", fontSize: 10.5, fontWeight: 700, display: "flex",
+              alignItems: "center", gap: 4, fontFamily: "Nunito, sans-serif",
+            }}><ZoomIn size={12} /> Hover to zoom</div>
+          )}
+
+          {hasMultiple && (
+            <>
+              <button onClick={() => go(-1)} style={{
+                position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)",
+                width: 34, height: 34, borderRadius: "50%", background: "rgba(255,255,255,.92)",
+                border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: COLORS.cocoa,
+              }}><ChevronLeft size={18} /></button>
+              <button onClick={() => go(1)} style={{
+                position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
+                width: 34, height: 34, borderRadius: "50%", background: "rgba(255,255,255,.92)",
+                border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: COLORS.cocoa,
+              }}><ChevronRight size={18} /></button>
+            </>
+          )}
+
+          {hasDiscount && !outOfStock && (
+            <div style={{ position: "absolute", top: 12, left: 12, background: COLORS.mint, color: "#fff", fontSize: 11, fontWeight: 800, padding: "4px 10px", borderRadius: 999 }}>{product.discountPercent}% OFF</div>
+          )}
+        </div>
+
+        {/* thumbnails (desktop-friendly, also usable on mobile) */}
+        {hasMultiple && (
+          <div style={{ display: "flex", gap: 8, padding: "12px 16px 0", overflowX: "auto" }}>
+            {images.map((img, i) => (
+              <button
+                key={i}
+                onClick={() => setIndex(i)}
+                style={{
+                  width: 56, height: 56, borderRadius: 12, flexShrink: 0, padding: 0, cursor: "pointer",
+                  overflow: "hidden", background: COLORS.blush,
+                  border: i === index ? `2.5px solid ${COLORS.magenta}` : `2.5px solid transparent`,
+                  opacity: i === index ? 1 : 0.7,
+                }}
+              >
+                <img src={img} alt={`${product.name} ${i + 1}`} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* dot indicators — most useful on mobile while swiping */}
+        {hasMultiple && (
+          <div style={{ display: "flex", justifyContent: "center", gap: 6, padding: "10px 0 0" }}>
+            {images.map((_, i) => (
+              <span key={i} style={{
+                width: i === index ? 16 : 6, height: 6, borderRadius: 999,
+                background: i === index ? COLORS.magenta : COLORS.line, transition: "width .15s ease",
+              }} />
+            ))}
+          </div>
+        )}
+
+        {/* product info */}
+        <div style={{ padding: 20 }}>
+          {product.tag && <div style={{ marginBottom: 6 }}><Pill bg="#FFF1D9" color="#B4720F">{product.tag}</Pill></div>}
+          <div style={{ fontFamily: "'Playfair Display', serif", fontWeight: 800, fontSize: 22, color: COLORS.cocoa }}>{product.name}</div>
+          <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 13, color: "#8A6C5F", margin: "6px 0 10px" }}>{product.desc}</div>
+          <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 12, color: "#B08A7A", marginBottom: 14 }}>{product.weight || product.unit}</div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+              <span style={{ fontFamily: "'Playfair Display', serif", fontWeight: 800, fontSize: 24, color: COLORS.magenta }}>₹{finalPrice}</span>
+              {hasDiscount && <span style={{ fontFamily: "Nunito, sans-serif", fontSize: 14, color: "#B08A7A", textDecoration: "line-through" }}>₹{product.price}</span>}
+            </span>
+            <Button variant="primary" disabled={outOfStock} onClick={() => { addToCart(product.id); toast(`${product.name} added to cart`); }}>
+              {outOfStock ? "Unavailable" : (<><Plus size={15} /> Add to cart</>)}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ---------------- Products ---------------- */
 
-function ProductsPage({ products, addToCart, toast }) {
+function ProductsPage({ products, addToCart, toast, onView }) {
   return (
     <div style={{ maxWidth: 1000, margin: "0 auto", padding: "24px 18px 60px" }}>
       <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 26, color: COLORS.cocoa }}>Our Little Treats</h2>
@@ -399,9 +594,13 @@ function ProductsPage({ products, addToCart, toast }) {
           const outOfStock = (p.stock ?? 0) <= 0;
           const hasDiscount = Number(p.discountPercent) > 0;
           const finalPrice = effectivePrice(p);
+          const gallery = getProductImages(p);
           return (
             <div key={p.id} style={{ background: "#fff", borderRadius: 20, border: `2px solid ${COLORS.line}`, overflow: "hidden", display: "flex", flexDirection: "column", opacity: outOfStock ? 0.75 : 1 }}>
-              <div style={{ background: COLORS.blush, textAlign: "center", padding: 0, position: "relative", height: 150, overflow: "hidden" }}>
+              <div
+                onClick={() => onView(p)}
+                style={{ background: COLORS.blush, textAlign: "center", padding: 0, position: "relative", height: 150, overflow: "hidden", cursor: "pointer" }}
+              >
                 {p.image && String(p.image).trim().length > 0 ? (
                   <img
                     src={normalizeImageUrl(p.image)}
@@ -424,10 +623,16 @@ function ProductsPage({ products, addToCart, toast }) {
                 {hasDiscount && !outOfStock && (
                   <div style={{ position: "absolute", top: 8, left: 8, background: COLORS.mint, color: "#fff", fontSize: 10.5, fontWeight: 800, padding: "3px 9px", borderRadius: 999, letterSpacing: 0.3 }}>{p.discountPercent}% OFF</div>
                 )}
+                {gallery.length > 1 && (
+                  <div style={{
+                    position: "absolute", bottom: 8, right: 8, background: "rgba(74,42,34,.6)", color: "#fff",
+                    borderRadius: 999, padding: "2px 8px", fontSize: 10, fontWeight: 700, fontFamily: "Nunito, sans-serif",
+                  }}>1/{gallery.length}</div>
+                )}
               </div>
               <div style={{ padding: 16, display: "flex", flexDirection: "column", flex: 1 }}>
                 {p.tag && !outOfStock && <div style={{ marginBottom: 6 }}><Pill bg="#FFF1D9" color="#B4720F">{p.tag}</Pill></div>}
-                <div style={{ fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: 17, color: COLORS.cocoa }}>{p.name}</div>
+                <div onClick={() => onView(p)} style={{ fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: 17, color: COLORS.cocoa, cursor: "pointer" }}>{p.name}</div>
                 <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 12, color: "#8A6C5F", margin: "4px 0 8px" }}>{p.desc}</div>
                 <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 11.5, color: "#B08A7A", marginBottom: 10 }}>{p.weight || p.unit}</div>
                 <div style={{ marginTop: "auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -825,51 +1030,64 @@ function OrdersPage({ orders, user, setPage }) {
 /* ---------------- Admin ---------------- */
 
 function AdminProductsPage({ products, addProduct, deleteProduct, updateProduct, sheetUrl, setSheetUrl, callSheet, pushToast }) {
-  const [form, setForm] = useState({ name: "", price: "", weight: "", stock: "", discountPercent: "", emoji: "🍪", desc: "", tag: "", image: "" });
+  const [form, setForm] = useState({ name: "", price: "", weight: "", stock: "", discountPercent: "", emoji: "🍪", desc: "", tag: "", images: [] });
   const [imgError, setImgError] = useState("");
   const [uploading, setUploading] = useState(false);
 
-  const handleImage = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const MAX_PHOTOS = 5;
+
+  const handleImages = async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = ""; // allow re-selecting the same file later
+    if (!files.length) return;
     setImgError("");
+
+    const room = MAX_PHOTOS - form.images.length;
+    if (room <= 0) { setImgError(`You can add up to ${MAX_PHOTOS} photos per product.`); return; }
+    const toAdd = files.slice(0, room);
+    if (files.length > room) setImgError(`Only added ${room} more — ${MAX_PHOTOS} photos max per product.`);
 
     if (!sheetUrl) {
       // demo mode — preview only, not persisted
-      const previewReader = new FileReader();
-      previewReader.onload = () => setForm((f) => ({ ...f, image: previewReader.result }));
-      previewReader.readAsDataURL(file);
+      for (const file of toAdd) {
+        const dataUrl = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.readAsDataURL(file);
+        });
+        setForm((f) => ({ ...f, images: [...f.images, dataUrl] }));
+      }
       return;
     }
 
-    // Always upload if sheetUrl is set, then show preview
     setUploading(true);
     try {
-      const compressed = await compressImageFile(file, 800, 0.7);
-      const url = await uploadImageInChunks(compressed, callSheet);
-      if (!url || !url.startsWith("http")) throw new Error("Invalid image URL returned from server.");
-      setForm((f) => ({ ...f, image: url }));
-      pushToast("✓ Photo uploaded and ready!");
+      for (const file of toAdd) {
+        const compressed = await compressImageFile(file, 800, 0.7);
+        const url = await uploadImageInChunks(compressed, callSheet);
+        if (!url || !url.startsWith("http")) throw new Error("Invalid image URL returned from server.");
+        setForm((f) => ({ ...f, images: [...f.images, url] }));
+      }
+      pushToast(toAdd.length > 1 ? `✓ ${toAdd.length} photos uploaded!` : "✓ Photo uploaded and ready!");
     } catch (err) {
-      setImgError(err.message || "Couldn't upload the photo. Please try again.");
-      setForm((f) => ({ ...f, image: "" }));
+      setImgError(err.message || "Couldn't upload one of the photos. Please try again.");
     } finally {
       setUploading(false);
     }
   };
 
+  const removeImage = (i) => setForm((f) => ({ ...f, images: f.images.filter((_, idx) => idx !== i) }));
+
   const submit = () => {
     if (!form.name || !form.price) return;
 
-    // Warn if image looks incomplete
-    if (form.image && form.image.startsWith("data:")) {
-      setImgError("Please wait for the image upload to finish before adding the product.");
+    // Require any in-progress upload to finish first
+    if (uploading) {
+      setImgError("Please wait for the photo upload to finish.");
       return;
     }
-
-    // Require image upload if they started one
-    if (uploading) {
-      setImgError("Please wait for the image upload to finish.");
+    if (form.images.some((img) => img.startsWith("data:") && sheetUrl)) {
+      setImgError("Please wait for the photo upload to finish before adding the product.");
       return;
     }
 
@@ -879,8 +1097,10 @@ function AdminProductsPage({ products, addProduct, deleteProduct, updateProduct,
       stock: Number(form.stock) || 0,
       discountPercent: Math.min(90, Math.max(0, Number(form.discountPercent) || 0)),
       unit: form.weight,
+      image: form.images[0] || "",         // legacy single-image field, kept for backward compatibility
+      images: form.images.join("|"),        // pipe-joined so it round-trips through the Sheet as plain text
     });
-    setForm({ name: "", price: "", weight: "", stock: "", discountPercent: "", emoji: "🍪", desc: "", tag: "", image: "" });
+    setForm({ name: "", price: "", weight: "", stock: "", discountPercent: "", emoji: "🍪", desc: "", tag: "", images: [] });
     setImgError("");
   };
 
@@ -927,14 +1147,48 @@ function AdminProductsPage({ products, addProduct, deleteProduct, updateProduct,
         </div>
         <Field label="Description" value={form.desc} onChange={(e) => setForm({ ...form, desc: e.target.value })} placeholder="Short description" />
 
-        <label style={{ display: "block", marginBottom: 14 }}>
-          <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, color: COLORS.cocoa, marginBottom: 6 }}>Product Photo (optional)</span>
-          <input type="file" accept="image/*" onChange={handleImage} disabled={uploading} style={{ fontFamily: "Nunito, sans-serif", fontSize: 13 }} />
-          {uploading && <div style={{ color: COLORS.mint, fontSize: 12, fontWeight: 700, marginTop: 6 }}>Uploading photo...</div>}
-          {imgError && <div style={{ color: "#C6296B", fontSize: 12, fontWeight: 700, marginTop: 6 }}>{imgError}</div>}
-          {form.image && <img src={form.image} alt="preview" style={{ width: 90, height: 90, objectFit: "contain", borderRadius: 12, marginTop: 8, border: `2px solid ${COLORS.line}`, background: COLORS.blush }} />}
-          {!sheetUrl && <div style={{ color: "#B08A7A", fontSize: 11, marginTop: 6 }}>Connect Google Sheets below to make photos persist permanently.</div>}
-        </label>
+        <div style={{ marginBottom: 14 }}>
+          <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, color: COLORS.cocoa, marginBottom: 6 }}>
+            Product Photos (optional, up to {MAX_PHOTOS} — first one is the cover photo)
+          </span>
+          <label style={{
+            display: "inline-flex", alignItems: "center", gap: 8, cursor: form.images.length >= MAX_PHOTOS ? "not-allowed" : "pointer",
+            padding: "9px 14px", borderRadius: 10, border: `2px dashed ${COLORS.line}`, color: COLORS.cocoa,
+            fontFamily: "Nunito, sans-serif", fontWeight: 700, fontSize: 13, background: "#fff",
+          }}>
+            <ImagePlus size={16} color={COLORS.magenta} /> Add photos
+            <input
+              type="file" accept="image/*" multiple
+              onChange={handleImages}
+              disabled={uploading || form.images.length >= MAX_PHOTOS}
+              style={{ display: "none" }}
+            />
+          </label>
+          {uploading && <div style={{ color: COLORS.mint, fontSize: 12, fontWeight: 700, marginTop: 8 }}>Uploading photo...</div>}
+          {imgError && <div style={{ color: "#C6296B", fontSize: 12, fontWeight: 700, marginTop: 8 }}>{imgError}</div>}
+
+          {form.images.length > 0 && (
+            <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+              {form.images.map((img, i) => (
+                <div key={i} style={{ position: "relative", width: 76, height: 76 }}>
+                  <img src={img} alt={`preview ${i + 1}`} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: 12, border: `2px solid ${COLORS.line}`, background: COLORS.blush }} />
+                  {i === 0 && (
+                    <span style={{ position: "absolute", bottom: -6, left: 4, background: COLORS.magenta, color: "#fff", fontSize: 8.5, fontWeight: 800, padding: "1.5px 6px", borderRadius: 999 }}>COVER</span>
+                  )}
+                  <button
+                    onClick={() => removeImage(i)}
+                    style={{
+                      position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: "50%",
+                      background: COLORS.cocoa, color: "#fff", border: "2px solid #fff", cursor: "pointer",
+                      display: "flex", alignItems: "center", justifyContent: "center", padding: 0,
+                    }}
+                  ><X size={11} /></button>
+                </div>
+              ))}
+            </div>
+          )}
+          {!sheetUrl && <div style={{ color: "#B08A7A", fontSize: 11, marginTop: 8 }}>Connect Google Sheets below to make photos persist permanently.</div>}
+        </div>
 
         <Button variant="primary" onClick={submit} disabled={uploading}><Plus size={15} /> Add Product</Button>
       </div>
@@ -959,6 +1213,12 @@ function AdminProductsPage({ products, addProduct, deleteProduct, updateProduct,
                 <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
                   <span style={{ fontSize: 40 }}>{p.emoji}</span>
                 </div>
+              )}
+              {getProductImages(p).length > 1 && (
+                <div style={{
+                  position: "absolute", bottom: 6, right: 6, background: "rgba(74,42,34,.6)", color: "#fff",
+                  borderRadius: 999, padding: "2px 7px", fontSize: 9.5, fontWeight: 700, fontFamily: "Nunito, sans-serif",
+                }}>{getProductImages(p).length} photos</div>
               )}
             </div>
             <div style={{ fontFamily: "Nunito, sans-serif", fontWeight: 800, fontSize: 14, color: COLORS.cocoa, marginTop: 6 }}>{p.name}</div>
@@ -1273,6 +1533,7 @@ export default function LittleTreatsApp() {
   const [orders, setOrders] = useState([]);
   const [offers, setOffers] = useState([]);
   const [lastOrder, setLastOrder] = useState(null);
+  const [viewProduct, setViewProduct] = useState(null);
   const [sheetUrl, setSheetUrl] = useState("https://script.google.com/macros/s/AKfycbyJ8aKilYXt-gNzcqy8sueXWuFJ-lFH5Udnm0jykuHU9yMwmnAp9lnG7wza2OUK302x/exec");
   const [toasts, setToasts] = useState([]);
   const [authBusy, setAuthBusy] = useState(false);
@@ -1445,6 +1706,12 @@ export default function LittleTreatsApp() {
       return { id: p.id, name: p.name, price: effectivePrice(p), qty: c.qty };
     });
 
+    // Quick client-side pre-checks purely for fast UX (no round trip needed
+    // to tell someone their cart is obviously short on stock). These are
+    // NOT the source of truth — when the Sheet is connected, the backend
+    // re-validates stock and the UTR against the live data inside a lock,
+    // because two customers could be checking out at the same instant with
+    // stale/cached numbers on the client.
     const insufficient = items.find((i) => {
       const p = products.find((pp) => pp.id === i.id);
       return (p?.stock ?? 0) < i.qty;
@@ -1455,8 +1722,18 @@ export default function LittleTreatsApp() {
       return { ok: false, error: msg };
     }
 
+    const utrCheck = String(payment.utr || "").trim();
+    if (utrCheck && orders.some((o) => String(o.utr || "").trim().toLowerCase() === utrCheck.toLowerCase())) {
+      const msg = "This UTR/reference number has already been used for another order.";
+      return { ok: false, error: msg };
+    }
+
     const total = items.reduce((s, i) => s + i.price * i.qty, 0);
-    const order = {
+    let order = {
+      // Placeholder ID for demo mode (no Sheet connected). When the Sheet IS
+      // connected, this gets overwritten below with the server-assigned ID —
+      // never trust a client-generated ID as the real order number, since
+      // two orders placed around the same moment could otherwise collide.
       id: String(Date.now()).slice(-6),
       userId: user.id,
       userName: user.name,
@@ -1464,32 +1741,34 @@ export default function LittleTreatsApp() {
       items, total, address,
       status: "Pending",
       date: new Date().toISOString(),
-      utr: String(payment.utr || "").trim(),
+      utr: utrCheck,
       paymentMethod: payment.paymentMethod || "",
       paymentStatus: payment.paymentStatus || "Unpaid",
       razorpayPaymentId: payment.razorpayPaymentId || "",
       screenshotUrl: payment.screenshotUrl || "",
     };
 
-    const utrCheck = String(payment.utr || "").trim();
-    if (utrCheck && orders.some((o) => String(o.utr || "").trim().toLowerCase() === utrCheck.toLowerCase())) {
-      const msg = "This UTR/reference number has already been used for another order.";
-      return { ok: false, error: msg };
-    }
-
     if (sheetUrl) {
       const result = await callSheet({ action: "newOrder", order });
       if (!result.ok) {
         return { ok: false, error: result.error || "Couldn't place order. Please try again." };
       }
+      // The backend validated stock/UTR and decremented stock atomically,
+      // and assigned the real order ID — adopt its version of the order.
+      order = result.order || { ...order, id: result.id || order.id };
     }
 
     setOrders((o) => [...o, order]);
+    // Update local product stock for a snappy UI. This is optimistic/local
+    // only — when the Sheet is connected we deliberately do NOT push this
+    // number back with updateProduct, because the backend already applied
+    // the authoritative decrement inside its lock; overwriting it from here
+    // would reintroduce the exact race condition (two customers' orders
+    // stomping on each other's stock numbers) that the backend fix prevents.
     setProducts((arr) => arr.map((p) => {
       const bought = items.find((i) => i.id === p.id);
       if (!bought) return p;
       const newStock = Math.max(0, (p.stock ?? 0) - bought.qty);
-      if (sheetUrl) callSheet({ action: "updateProduct", id: p.id, patch: { stock: newStock } });
       return { ...p, stock: newStock };
     }));
     setLastOrder(order);
@@ -1544,7 +1823,7 @@ export default function LittleTreatsApp() {
     }
   } else {
     switch (page) {
-      case "products": content = <ProductsPage products={products} addToCart={addToCart} toast={pushToast} />; break;
+      case "products": content = <ProductsPage products={products} addToCart={addToCart} toast={pushToast} onView={setViewProduct} />; break;
       case "cart": content = <CartPage cart={cart} products={products} updateQty={updateQty} removeFromCart={removeFromCart} setPage={setPage} user={user} />; break;
       case "checkout": content = user ? <CheckoutPage cart={cart} products={products} placeOrder={placeOrder} setPage={setPage} user={user} pushToast={pushToast} callSheet={callSheet} /> : <LoginPage setPage={setPage} loginUser={loginUser} registerUser={registerUser} resetPassword={resetPassword} authBusy={authBusy} />; break;
       case "confirmation": content = <ConfirmationPage lastOrder={lastOrder} setPage={setPage} />; break;
@@ -1559,6 +1838,12 @@ export default function LittleTreatsApp() {
       <Header page={page} setPage={setPage} user={user} logout={logout} cartCount={cartCount} />
       {content}
       <Toast toasts={toasts} />
+      <ProductGalleryModal
+        product={viewProduct}
+        addToCart={addToCart}
+        toast={pushToast}
+        onClose={() => setViewProduct(null)}
+      />
       <div style={{ textAlign: "center", padding: "20px 0 30px", fontFamily: "Nunito, sans-serif", fontSize: 12, color: "#B08A7A" }}>
         🍪 Little Treats by Jan — Thank you for supporting homemade! 💗
       </div>
