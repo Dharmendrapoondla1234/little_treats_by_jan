@@ -315,10 +315,7 @@ function OfferStrip({ offers }) {
           boxShadow: "0 12px 26px rgba(198,41,107,.08)", overflow: "hidden"
         }}>
           {offer.image ? (
-            <div style={{ width: 78, height: 78, borderRadius: 14, position: "relative", overflow: "hidden", flexShrink: 0, border: `2px solid rgba(74,42,34,.08)` }}>
-              <img src={offer.image} alt="" aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", filter: "blur(10px) saturate(1.3) brightness(0.85)", transform: "scale(1.2)" }} />
-              <img src={offer.image} alt={offer.title} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", padding: 4, boxSizing: "border-box" }} />
-            </div>
+            <img src={offer.image} alt={offer.title} style={{ width: 78, height: 78, borderRadius: 14, objectFit: "cover", objectPosition: "center", flexShrink: 0, border: `2px solid rgba(74,42,34,.08)` }} />
           ) : <div style={{ width: 78, height: 78, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(255,255,255,.45)", fontSize: 28 }}>🎉</div>}
           <div style={{ flex: 1 }}>
             <div style={{ fontFamily: "Nunito, sans-serif", fontWeight: 900, fontSize: 13, color: COLORS.cocoa, textTransform: "uppercase", letterSpacing: 0.7 }}>{offer.title}</div>
@@ -406,28 +403,16 @@ function ProductsPage({ products, addToCart, toast }) {
             <div key={p.id} style={{ background: "#fff", borderRadius: 20, border: `2px solid ${COLORS.line}`, overflow: "hidden", display: "flex", flexDirection: "column", opacity: outOfStock ? 0.75 : 1 }}>
               <div style={{ background: COLORS.blush, textAlign: "center", padding: 0, position: "relative", height: 150, overflow: "hidden" }}>
                 {p.image && String(p.image).trim().length > 0 ? (
-                  <div className="lt-img-frame" style={{ position: "absolute", inset: 0 }}>
-                    <img
-                      src={normalizeImageUrl(p.image)}
-                      alt=""
-                      aria-hidden="true"
-                      style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", filter: "blur(22px) saturate(1.3) brightness(0.85)", transform: "scale(1.2)" }}
-                    />
-                    <div style={{ position: "absolute", inset: 0, background: "rgba(74,42,34,0.12)" }} />
-                    <img
-                      src={normalizeImageUrl(p.image)}
-                      alt={p.name}
-                      style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", padding: 10, boxSizing: "border-box", filter: "drop-shadow(0 8px 16px rgba(74,42,34,.35))" }}
-                      onError={(e) => {
-                        console.warn(`⚠️ Image failed to load for ${p.name}:`, p.image);
-                        const frame = e.currentTarget.closest(".lt-img-frame");
-                        if (frame) frame.style.display = "none";
-                        const parent = frame ? frame.parentElement : e.currentTarget.parentElement;
-                        parent.insertAdjacentHTML("beforeend", `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:54px">${p.emoji || "🍪"}</div>`);
-                      }}
-                      onLoad={() => console.log(`✓ Image loaded: ${p.name}`)}
-                    />
-                  </div>
+                  <img
+                    src={normalizeImageUrl(p.image)}
+                    alt={p.name}
+                    style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "center" }}
+                    onError={(e) => {
+                      console.warn(`⚠️ Image failed to load for ${p.name}:`, p.image);
+                      e.currentTarget.style.display = "none";
+                      e.currentTarget.parentElement.insertAdjacentHTML("beforeend", `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:54px">${p.emoji || "🍪"}</div>`);
+                    }}
+                  />
                 ) : (
                   <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
                     <span style={{ fontSize: 54 }}>{p.emoji}</span>
@@ -960,27 +945,16 @@ function AdminProductsPage({ products, addProduct, deleteProduct, updateProduct,
             <button onClick={() => deleteProduct(p.id)} style={{ position: "absolute", top: 10, right: 10, background: "none", border: "none", color: "#C6296B", cursor: "pointer" }}><Trash2 size={15} /></button>
             <div style={{ width: "100%", height: 100, borderRadius: 10, marginBottom: 8, background: COLORS.blush, position: "relative", overflow: "hidden" }}>
               {p.image && String(p.image).trim().length > 0 ? (
-                <div className="lt-img-frame" style={{ position: "absolute", inset: 0 }}>
-                  <img
-                    src={normalizeImageUrl(p.image)}
-                    alt=""
-                    aria-hidden="true"
-                    style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", filter: "blur(16px) saturate(1.3) brightness(0.85)", transform: "scale(1.2)" }}
-                  />
-                  <div style={{ position: "absolute", inset: 0, background: "rgba(74,42,34,0.12)" }} />
-                  <img
-                    src={normalizeImageUrl(p.image)}
-                    alt={p.name}
-                    style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", padding: 6, boxSizing: "border-box", filter: "drop-shadow(0 6px 12px rgba(74,42,34,.35))" }}
-                    onError={(e) => {
-                      console.warn(`⚠️ Image failed to load for ${p.name}: ${p.image}`);
-                      const frame = e.currentTarget.closest(".lt-img-frame");
-                      if (frame) frame.style.display = "none";
-                      const parent = frame ? frame.parentElement : e.currentTarget.parentElement;
-                      parent.insertAdjacentHTML("beforeend", `<span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:40px">${p.emoji || "🍪"}</span>`);
-                    }}
-                  />
-                </div>
+                <img
+                  src={normalizeImageUrl(p.image)}
+                  alt={p.name}
+                  style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "center" }}
+                  onError={(e) => {
+                    console.warn(`⚠️ Image failed to load for ${p.name}: ${p.image}`);
+                    e.currentTarget.style.display = "none";
+                    e.currentTarget.parentElement.insertAdjacentHTML("beforeend", `<span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:40px">${p.emoji || "🍪"}</span>`);
+                  }}
+                />
               ) : (
                 <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
                   <span style={{ fontSize: 40 }}>{p.emoji}</span>
@@ -1134,10 +1108,7 @@ function AdminOffersPage({ offers, addOffer, deleteOffer, updateOffer, callSheet
         {offers.map((offer) => (
           <div key={offer.id} style={{ background: offer.color || COLORS.blush, border: `2px solid ${COLORS.line}`, borderRadius: 18, padding: 14 }}>
             {offer.image ? (
-              <div style={{ width: "100%", height: 110, borderRadius: 12, marginBottom: 10, position: "relative", overflow: "hidden", border: `2px solid rgba(74,42,34,.08)` }}>
-                <img src={offer.image} alt="" aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", filter: "blur(16px) saturate(1.3) brightness(0.85)", transform: "scale(1.2)" }} />
-                <img src={offer.image} alt={offer.title} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", padding: 8, boxSizing: "border-box", filter: "drop-shadow(0 6px 12px rgba(74,42,34,.35))" }} />
-              </div>
+              <img src={offer.image} alt={offer.title} style={{ width: "100%", height: 110, borderRadius: 12, marginBottom: 10, objectFit: "cover", objectPosition: "center", border: `2px solid rgba(74,42,34,.08)`, boxSizing: "border-box" }} />
             ) : <div style={{ height: 110, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32, background: "rgba(255,255,255,.32)", borderRadius: 12, marginBottom: 10 }}>🎉</div>}
             <div style={{ fontFamily: "Nunito, sans-serif", fontWeight: 900, fontSize: 13, color: COLORS.cocoa, textTransform: "uppercase" }}>{offer.title}</div>
             <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 12.5, color: "#6B4A3E", marginTop: 4 }}>{offer.description}</div>
